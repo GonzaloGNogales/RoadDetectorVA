@@ -16,7 +16,7 @@ from colorsys import hsv_to_rgb
 in_img = cv2.imread('train/00000.ppm')
 print(in_img.shape)
 
-# 1 - Convert the color to grayscale
+# 1 - Convert the image color to grayscale
 img = cv2.cvtColor(in_img, cv2.COLOR_BGR2GRAY)
 
 # MSER OPERATIONS
@@ -26,18 +26,26 @@ img = cv2.adaptiveThreshold(img, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH
 
 # Initialize Maximally Stable Extremal Regions (MSER) and output matrix
 output = np.zeros((img.shape[0], img.shape[1], 3), dtype=np.uint8)
-mser = cv2.MSER_create(_delta=10, _max_variation=0.5, _max_area=10000, _min_area=60)
+mser = cv2.MSER_create(_delta=10, _max_variation=0.25, _max_area=1000, _min_area=50)
 
 # Detect polygons (regions) from the image
 polygons = mser.detectRegions(img)
 
 # Color output
+# for polygon in polygons[0]:
+#     colorRGB = hsv_to_rgb(random(), 1, 1)  # Generate a random color
+#     colorRGB = tuple(int(color*255) for color in colorRGB)
+#     output = cv2.fillPoly(output, [polygon], colorRGB)
+
+# Color rectangles
 for polygon in polygons[0]:
+    x, y, w, h = cv2.boundingRect(polygon)
     colorRGB = hsv_to_rgb(random(), 1, 1)  # Generate a random color
     colorRGB = tuple(int(color*255) for color in colorRGB)
-    output = cv2.fillPoly(output, [polygon], colorRGB)
+    cv2.rectangle(in_img, (x, y), (x + w, y + h), colorRGB, 2)
 
 # Show output
+cv2.imshow('Rect Detected Image: ', in_img)
 cv2.imshow('Gray Image: ', img)
 cv2.imshow('MSER: ', output)
 
