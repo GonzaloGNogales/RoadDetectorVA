@@ -1,0 +1,12 @@
+# Default ignored files
+/shelf/
+/workspace.xml
+# Datasource local storage ignored files
+/../../../../../../../:\Users\gonza\PycharmProjects\ComputerVisionURJC\roadDetector\.idea/dataSources/
+/dataSources.local.xml
+# Editor-based HTTP Client requests
+/httpRequests/
+test/
+train/
+train_10_ejemplos/
+train_recortadas/
