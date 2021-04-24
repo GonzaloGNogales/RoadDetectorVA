@@ -1,4 +1,5 @@
 import argparse
+import os
 import numpy as np
 import matplotlib.pyplot as plt
 import cv2
@@ -13,42 +14,91 @@ from colorsys import hsv_to_rgb
 # Peligro: [11, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31]
 # Stop: [14]
 
-in_img = cv2.imread('train/00000.ppm')
-print(in_img.shape)
+# Read the input training images in color
+images = list()
+for i in os.listdir('train_10_ejemplos'):
+    if i != 'gt.txt':
+        images.append(cv2.imread('train_10_ejemplos/' + i))
+N = len(images)
 
-# 1 - Convert the image color to grayscale
-img = cv2.cvtColor(in_img, cv2.COLOR_BGR2GRAY)
+# 1 - Create another list with the greyscale recolored images
+greyscale_images = list()
+for i in range(N):
+    greyscale_images.append(cv2.cvtColor(images[i], cv2.COLOR_BGR2GRAY))
 
 # MSER OPERATIONS
-# 2 - Filter with some operations for managing contrast
-# img = cv2.equalizeHist(img)  -> try equalization
-img = cv2.adaptiveThreshold(img, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 15, 10)
 
-# Initialize Maximally Stable Extremal Regions (MSER) and output matrix
-output = np.zeros((img.shape[0], img.shape[1], 3), dtype=np.uint8)
+# Initialize Maximally Stable Extremal Regions (MSER) and output matrix list
+outputs = list()
 mser = cv2.MSER_create(_delta=10, _max_variation=0.25, _max_area=1000, _min_area=50)
 
-# Detect polygons (regions) from the image
-polygons = mser.detectRegions(img)
+masks = list()
+originals = list()
+for i in range(N):
+    # 2 - Filter with adaptive threshold for increasing the contrast of the points of interest
+    greyscale_images[i] = cv2.adaptiveThreshold(greyscale_images[i], 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 12)
+    outputs.append(np.zeros((images[i].shape[0], images[i].shape[1], 3), dtype=np.uint8))
 
-# Color output
-# for polygon in polygons[0]:
-#     colorRGB = hsv_to_rgb(random(), 1, 1)  # Generate a random color
-#     colorRGB = tuple(int(color*255) for color in colorRGB)
-#     output = cv2.fillPoly(output, [polygon], colorRGB)
+    # Detect polygons (regions) from the image
+    polygons = mser.detectRegions(greyscale_images[i])
 
-# Color rectangles
-for polygon in polygons[0]:
-    x, y, w, h = cv2.boundingRect(polygon)
-    colorRGB = hsv_to_rgb(random(), 1, 1)  # Generate a random color
-    colorRGB = tuple(int(color*255) for color in colorRGB)
-    cv2.rectangle(in_img, (x, y), (x + w, y + h), colorRGB, 2)
+    # Color output
+    for polygon in polygons[0]:
+        colorRGB = hsv_to_rgb(random(), 1, 1)  # Generate a random color
+        colorRGB = tuple(int(color*255) for color in colorRGB)
+        outputs[i] = cv2.fillPoly(outputs[i], [polygon], colorRGB)
 
-# Show output
-cv2.imshow('Rect Detected Image: ', in_img)
-cv2.imshow('Gray Image: ', img)
-cv2.imshow('MSER: ', output)
+    # Color rectangles
+    candidate_regions = list()
+    for polygon in polygons[0]:
+        x, y, w, h = cv2.boundingRect(polygon)
+        if abs(1 - w / h) <= 0.2:
+            colorRGB = hsv_to_rgb(random(), 1, 1)  # Generate a random color
+            colorRGB = tuple(int(color*255) for color in colorRGB)
+            x -= 5
+            y -= 5
+            w += 10
+            h += 10
+            # cv2.rectangle(images[i], (x, y), (x + w, y + h), colorRGB, 2)  # we only want the regions not painting the rectangles
+            candidate_regions.append(polygon)  # Save polygon into candidate regions
+            crop_img = images[i][y:y+h, x:x+w]
+            h, w, _ = crop_img.shape
 
+            if h <= 0 or w <= 0:
+                continue
+
+            low_red_1 = np.array([0, 100, 20])
+            high_red_1 = np.array([8, 255, 255])
+            low_red_2 = np.array([175, 100, 20])
+            high_red_2 = np.array([179, 255, 255])
+
+            crop_img_HSV = cv2.cvtColor(crop_img, cv2.COLOR_BGR2HSV)
+            red_mask_1 = cv2.inRange(crop_img_HSV, low_red_1, high_red_1)
+            red_mask_2 = cv2.inRange(crop_img_HSV, low_red_2, high_red_2)
+            red_mask = cv2.add(red_mask_1, red_mask_2)
+
+            # Establish a threshold for discriminating the probable signal red masks from the others
+            red_mask_mean = np.mean(red_mask)
+            red_mask = cv2.resize(red_mask, (25, 25))
+            if 25 < red_mask_mean < 50:
+                originals.append(crop_img)
+                masks.append(red_mask)
+
+
+for m in range(len(masks)):
+    masks[m] = cv2.resize(masks[m], (500, 500))
+    originals[m] = cv2.resize(originals[m], (500, 500))
+
+    cv2.imshow('Red Mask Image ' + str(m) + ':', masks[m])
+    cv2.imshow('Original Image ' + str(m) + ':', originals[m])
+
+# # Show output
+# for i in range(N):
+#     cv2.imshow('Rect Detected Image ' + str(i) + ':', images[i])
+#     cv2.imshow('Greyscaled Image ' + str(i) + ':', greyscale_images[i])
+#     cv2.imshow('MSER ' + str(i) + ':', outputs[i])
+#     break
+#
 cv2.waitKey(0)
 cv2.destroyAllWindows()
 
