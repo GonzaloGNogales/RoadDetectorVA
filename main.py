@@ -20,7 +20,7 @@ class MSER_Detector:
         self.greyscale_images = list()  # Input list containing Greyscale images to feed MSER Detector (localization with MSER)
 
         # Initialize Maximally Stable Extremal Regions (MSER)
-        self.mser = cv2.MSER_create(delta, max_variation, max_area, min_area)
+        self.mser = cv2.MSER_create(_delta=delta, _max_variation=max_variation, _max_area=max_area, _min_area=min_area)
 
     def preprocess_data(self, directory='train_10_ejemplos/'):
         # Read the input training images in color
@@ -35,13 +35,12 @@ class MSER_Detector:
     # DETECTOR TRAINING
     def fit(self, max_value=255, adaptive_method=cv2.ADAPTIVE_THRESH_GAUSSIAN_C, threshold_type=cv2.THRESH_BINARY, block_size=11, c=12):
         batch_size = len(self.greyscale_images)
+        mser_outputs = list()  # Output list containing MSER detected regions
         training_output = {}
 
         for i in range(batch_size):
             # 2 - Filter with adaptive threshold for increasing the contrast of the points of interest
             self.greyscale_images[i] = cv2.adaptiveThreshold(self.greyscale_images[i], max_value, adaptive_method, threshold_type, block_size, c)
-
-            mser_outputs = list()  # Output list containing MSER detected regions
             mser_outputs.append(np.zeros((self.original_images[i].shape[0], self.original_images[i].shape[1], 3), dtype=np.uint8))
 
             # Detect polygons (regions) from the image
@@ -71,11 +70,6 @@ class MSER_Detector:
                     crop_img = self.original_images[i][y:y + h, x:x + w]
                     h, w, _ = crop_img.shape
 
-                    # *********************************************** DEBUG ********************************************
-                    cv2.rectangle(self.original_images[i], (x, y), (x + w, y + h), color_RGB, 2)
-                    # we only want the regions not painting the rectangles
-                    # **************************************************************************************************
-
                     if h <= 0 or w <= 0:  # Control test for not getting inconsistent dimensions
                         continue
 
@@ -98,6 +92,11 @@ class MSER_Detector:
                         filtered_detected_regions.append(crop_img)
                         masks.append(red_mask)
 
+            # *********************************************** DEBUG ********************************************
+            cv2.rectangle(self.original_images[i], (x, y), (x + w, y + h), color_RGB, 2)
+            # we only want the regions not painting the rectangles
+            # **************************************************************************************************
+
             training_output[i] = (masks, filtered_detected_regions, mser_outputs)
 
         return training_output
@@ -116,7 +115,7 @@ if __name__ == "__main__":
     parser.add_argument('--test_path', default="", help='Select the testing data dir')
 
     args = parser.parse_args()
-    print(args)
+    print(vars(args)['detector'])
 
     # Create the detector
     detector = MSER_Detector()
@@ -129,17 +128,19 @@ if __name__ == "__main__":
 
     # Show training results on screen
     for act_result in range(len(training_results)):
-        masks, regions, mser = act_result
+        masks, regions, mser = training_results[act_result]
+
         for m in range(len(masks)):
             masks[m] = cv2.resize(masks[m], (500, 500))
             regions[m] = cv2.resize(regions[m], (500, 500))
-            mser[m] = cv2.resize(mser[m], (500, 500))
-            detector.original_images[m] = cv2.resize(detector.original_images[m], (500, 500))  # DEBUG ONLY
-
-            cv2.imshow('MSER Regions Image ' + str(m) + ':', mser[m])
-            cv2.imshow('Original Rect Bounded Image ' + str(m) + ':', detector.original_images[m])
             cv2.imshow('Mask Region Image ' + str(m) + ':', regions[m])
             cv2.imshow('Red Mask Image ' + str(m) + ':', masks[m])
+
+        for d in range(len(mser)):
+            mser[d] = cv2.resize(mser[d], (500, 500))
+            detector.original_images[d] = cv2.resize(detector.original_images[d], (500, 500))  # DEBUG ONLY
+            cv2.imshow('MSER Regions Image ' + str(d) + ':', mser[d])
+            cv2.imshow('Original Rect Bounded Image ' + str(d) + ':', detector.original_images[d])
 
     cv2.waitKey(0)
     cv2.destroyAllWindows()
