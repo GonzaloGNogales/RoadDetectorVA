@@ -1,10 +1,11 @@
 import argparse
-import os
+import os, sys
 import numpy as np
 import matplotlib.pyplot as plt
 import cv2
 from random import random
 from colorsys import hsv_to_rgb
+from PIL import Image
 
 # El objetivo de la práctica 1 a entregar es desarrollar un detector muy básico de señales de tráfico para
 # los tres tipos principales: prohibición (con fondo blanco), peligro y stop.
@@ -57,6 +58,7 @@ class MSER_Detector:
             candidate_regions = list()
             filtered_detected_regions = list()
             masks = list()
+            original_image = np.copy(self.original_images[i])
             for polygon in polygons[0]:
                 x, y, w, h = cv2.boundingRect(polygon)
                 if abs(1 - w / h) <= 0.2:
@@ -67,7 +69,7 @@ class MSER_Detector:
                     w += 10
                     h += 10
                     candidate_regions.append(polygon)  # Save polygon into candidate regions
-                    crop_img = self.original_images[i][y:y + h, x:x + w]
+                    crop_img = original_image[y:y + h, x:x + w]  # crop_img = self.original_images[i][y:y + h, x:x + w]
                     h, w, _ = crop_img.shape
 
                     if h <= 0 or w <= 0:  # Control test for not getting inconsistent dimensions
@@ -92,10 +94,10 @@ class MSER_Detector:
                         filtered_detected_regions.append(crop_img)
                         masks.append(red_mask)
 
-            # *********************************************** DEBUG ********************************************
-            cv2.rectangle(self.original_images[i], (x, y), (x + w, y + h), color_RGB, 2)
-            # we only want the regions not painting the rectangles
-            # **************************************************************************************************
+                    # *********************************************** DEBUG ********************************************
+                    cv2.rectangle(self.original_images[i], (x, y), (x + w, y + h), color_RGB, 2)
+                    # we only want the regions not painting the rectangles
+                    # **************************************************************************************************
 
             training_output[i] = (masks, filtered_detected_regions, mser_outputs)
 
@@ -126,24 +128,39 @@ if __name__ == "__main__":
     # Training
     training_results = detector.fit()
 
-    # Show training results on screen
+    # Show training results on screen & save the same results in a folder
+    if not os.path.isdir('DetectionResults/'):
+        os.mkdir('DetectionResults/')
+
     for act_result in range(len(training_results)):
         masks, regions, mser = training_results[act_result]
 
+        characteristics = list()
         for m in range(len(masks)):
             masks[m] = cv2.resize(masks[m], (500, 500))
             regions[m] = cv2.resize(regions[m], (500, 500))
-            cv2.imshow('Mask Region Image ' + str(m) + ':', regions[m])
-            cv2.imshow('Red Mask Image ' + str(m) + ':', masks[m])
+            regions[m] = regions[m][:, :, ::-1]
+            characteristics.append(Image.fromarray(masks[m]))
+            characteristics.append(Image.fromarray(regions[m]))
 
-        for d in range(len(mser)):
-            mser[d] = cv2.resize(mser[d], (500, 500))
-            detector.original_images[d] = cv2.resize(detector.original_images[d], (500, 500))  # DEBUG ONLY
-            cv2.imshow('MSER Regions Image ' + str(d) + ':', mser[d])
-            cv2.imshow('Original Rect Bounded Image ' + str(d) + ':', detector.original_images[d])
+        mser[act_result] = cv2.resize(mser[act_result], (500, 500))
+        detector.original_images[act_result] = cv2.resize(detector.original_images[act_result], (500, 500))  # DEBUG ONLY
+        detector.original_images[act_result] = detector.original_images[act_result][:, :, ::-1]
+        characteristics.append(Image.fromarray(mser[act_result], 'RGB'))
+        characteristics.append(Image.fromarray(detector.original_images[act_result], 'RGB'))
 
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
+        characteristics_total_width = 500*len(characteristics)
+        characteristics_max_height = 500
+        new_characteristics_img = Image.new('RGB', (characteristics_total_width, characteristics_max_height))
+        xc_offset = 0
+        for c in characteristics:
+            new_characteristics_img.paste(c, (xc_offset, 0))
+            xc_offset += c.size[0]
+
+        if len(characteristics) > 2:
+            new_characteristics_img.save('DetectionResults/[DETECTED] Image Results - ' + str(act_result) + '.jpg')
+        else:
+            new_characteristics_img.save('DetectionResults/[NO DETECTIONS] Image Results - ' + str(act_result) + '.jpg')
 
     # NOT IMPLEMENTED YET
     # Load testing data
