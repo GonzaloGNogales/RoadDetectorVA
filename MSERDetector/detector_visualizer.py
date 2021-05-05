@@ -1,6 +1,7 @@
 import os
 import cv2
 from PIL import Image
+import shutil
 
 
 class Detector_Visualizer:
@@ -11,8 +12,11 @@ class Detector_Visualizer:
         self.dir = folder_name
 
     def setup_directory(self):
-        # Check if results folder already exists and if not create it
+        # Check if results folder already exists and clear it, if not create it
         if not os.path.isdir(self.dir):
+            os.mkdir(self.dir)
+        else:
+            shutil.rmtree(self.dir)
             os.mkdir(self.dir)
 
     def show_and_save(self):

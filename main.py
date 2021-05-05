@@ -18,13 +18,13 @@ if __name__ == "__main__":
 
     # Create the detector
     if vars(args)['detector'] == 'mser':
-        detector = MSER_Detector()
+        detector = MSER_Detector(delta=15)
 
         # Load training data
         detector.preprocess_data(vars(args)['train_path'])
 
         # Training
-        training_results = detector.fit()
+        training_results = detector.fit(block_size=15, c=7)
 
         # DEBUG OR VISUALIZE TRAINING RESULTS
         visualizer = Detector_Visualizer(training_results)
