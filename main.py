@@ -1,6 +1,6 @@
 import argparse
 from MSERDetector.mser_detector import *
-from MSERDetector.detector_visualizer import *
+from DetectorUtilities.detector_visualizer import *
 
 # Signal types:
 # Forbid: [0, 1, 2, 3, 4, 5, 7, 8, 9, 10, 15, 16]
@@ -18,7 +18,7 @@ if __name__ == "__main__":
 
     # Create the detector
     if vars(args)['detector'] == 'mser':
-        detector = MSER_Detector()
+        detector = MSER_Detector(delta=15)
 
         # Load training data
         detector.preprocess_data(vars(args)['train_path'])
