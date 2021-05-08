@@ -7,7 +7,7 @@ from DetectorUtilities.region import *
 
 
 class MSER_Detector:
-    def __init__(self, delta=10, max_variation=0.25, max_area=1000, min_area=50):
+    def __init__(self, delta=7, max_variation=0.2, max_area=2000, min_area=50):
         self.original_images = {}   # Original map for saving the original data (color detection)
         self.greyscale_images = {}  # Map containing Greyscale images to feed MSER Detector (localization with MSER)
         self.ground_truth = {}      # Map containing the regions of the present signals in the training images
@@ -41,16 +41,19 @@ class MSER_Detector:
             self.greyscale_images[key] = (cv2.cvtColor(self.original_images[key], cv2.COLOR_BGR2GRAY))
 
     # DETECTOR TRAINING
-    def fit(self, max_value=255, adaptive_method=cv2.ADAPTIVE_THRESH_GAUSSIAN_C, threshold_type=cv2.THRESH_BINARY, block_size=7, c=12):
+    def fit(self):
         mser_outputs = {}      # Output map containing MSER detected regions
         training_output = {}   # Map for storing the outputs of the training phase, for visualization purposes
 
         for key in self.greyscale_images:
-            # 2 - Filter with adaptive threshold for increasing the contrast of the points of interest
+            # 2 - Filter equalizing the histogram for increasing the contrast of the points of interest
+            # equalized_greyscale_image = cv2.equalizeHist(self.greyscale_images[key])
             mser_outputs[key] = (np.zeros((self.original_images[key].shape[0], self.original_images[key].shape[1], 3), dtype=np.uint8))
 
             # Detect polygons (regions) from the image
             regions, _ = self.mser.detectRegions(self.greyscale_images[key])
+            # regions_equalized, _ = self.mser.detectRegions(equalized_greyscale_image)
+            # regions = regions_non_equalized + regions_equalized
 
             # Color MSER output **************************************************************************************
             for region in regions:
@@ -65,22 +68,20 @@ class MSER_Detector:
             original_image = np.copy(self.original_images[key])
             for region in regions:
                 x, y, w, h = cv2.boundingRect(region)
-                if abs(1 - w / h) <= 0.8:
+                if abs(1 - w / h) <= 0.5:
                     color_RGB = hsv_to_rgb(random(), 1, 1)  # Generate a random color
                     color_RGB = tuple(int(color * 255) for color in color_RGB)
-                    x -= 5
-                    y -= 5
+
+                    # Adjust the width and height to obtain a perfect square for the region
+                    x = max(x - 5, 0)
+                    y = max(y - 5, 0)
                     w += 10
                     h += 10
                     if w > h:
                         h = w
                     elif h > w:
                         w = h
-                    crop_region = original_image[y:y + h, x:x + w]  # crop_region = self.original_images[i][y:y + h, x:x + w]
-                    h, w, _ = crop_region.shape
-
-                    if h <= 0 or w <= 0:  # Control test for not getting inconsistent dimensions
-                        continue
+                    crop_region = original_image[y:y + h, x:x + w]
 
                     # Red levels in HSV approximation
                     low_red_1 = np.array([0, 100, 20])
@@ -106,7 +107,7 @@ class MSER_Detector:
                     # we only want the regions not painting the rectangles for the final version
                     # **************************************************************************************************
 
-            training_output[key] = (masks, filtered_detected_regions, mser_outputs, self.original_images[key])
+            training_output[key] = (masks, filtered_detected_regions, mser_outputs, self.original_images[key], self.greyscale_images[key])
 
         return training_output
 

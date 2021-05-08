@@ -19,10 +19,10 @@ class Detector_Visualizer:
             shutil.rmtree(self.dir)
             os.mkdir(self.dir)
 
-    def show_and_save(self):
+    def save_to_dir(self):
         # Show training results on screen & save the same results in a folder self.dir
         for key in self.data:
-            masks, regions, mser, rect_detections = self.data[key]
+            masks, regions, mser, rect_detections, equalization_result = self.data[key]
 
             characteristics = list()  # List of detected characteristics for storing the elements of a single image detection
             for m in range(len(masks)):
@@ -36,8 +36,10 @@ class Detector_Visualizer:
             mser[key] = cv2.resize(mser[key], (500, 500))
             rect_detections = cv2.resize(rect_detections, (500, 500))  # DEBUG ONLY
             rect_detections = rect_detections[:, :, ::-1]
+            equalization_result = cv2.resize(equalization_result, (500, 500))
             characteristics.append(Image.fromarray(mser[key], 'RGB'))
             characteristics.append(Image.fromarray(rect_detections, 'RGB'))
+            characteristics.append(Image.fromarray(equalization_result))
 
             # Create a new image containing the characteristics detected by the detector and the original image
             # with the rectangles displayed for adding more legibility and enabling better debug practices
@@ -49,12 +51,9 @@ class Detector_Visualizer:
                 new_characteristics_img.paste(c, (xc_offset, 0))
                 xc_offset += c.size[0]
 
-            # Display the new image on screen before saving it into a directory
-            # cv2.imshow('Image Results - ' + str(act_result), np.array(new_characteristics_img)[:, :, ::-1])  # <- COMMENT THIS LINE IF BATCH SIZE IS LARGE
-
             # Finally save the created image with an information flag [DETECTED] if our detector classified something
             # as a signal or [NO DETECTIONS] for clarifying the absence of results (or detected areas)
-            if len(characteristics) > 2:
+            if len(characteristics) > 3:
                 new_characteristics_img.save('DetectionResults/[DETECTED] Image Results - ' + str(key)[0:5] + '.jpg')
             else:
                 new_characteristics_img.save(
