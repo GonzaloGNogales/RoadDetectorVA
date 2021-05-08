@@ -21,8 +21,8 @@ class Detector_Visualizer:
 
     def show_and_save(self):
         # Show training results on screen & save the same results in a folder self.dir
-        for act_result in range(len(self.data)):
-            masks, regions, mser, rect_detections = self.data[act_result]
+        for key in self.data:
+            masks, regions, mser, rect_detections = self.data[key]
 
             characteristics = list()  # List of detected characteristics for storing the elements of a single image detection
             for m in range(len(masks)):
@@ -33,10 +33,10 @@ class Detector_Visualizer:
                 characteristics.append(Image.fromarray(masks[m]))
                 characteristics.append(Image.fromarray(regions[m]))
 
-            mser[act_result] = cv2.resize(mser[act_result], (500, 500))
+            mser[key] = cv2.resize(mser[key], (500, 500))
             rect_detections = cv2.resize(rect_detections, (500, 500))  # DEBUG ONLY
             rect_detections = rect_detections[:, :, ::-1]
-            characteristics.append(Image.fromarray(mser[act_result], 'RGB'))
+            characteristics.append(Image.fromarray(mser[key], 'RGB'))
             characteristics.append(Image.fromarray(rect_detections, 'RGB'))
 
             # Create a new image containing the characteristics detected by the detector and the original image
@@ -55,10 +55,10 @@ class Detector_Visualizer:
             # Finally save the created image with an information flag [DETECTED] if our detector classified something
             # as a signal or [NO DETECTIONS] for clarifying the absence of results (or detected areas)
             if len(characteristics) > 2:
-                new_characteristics_img.save('DetectionResults/[DETECTED] Image Results - ' + str(act_result) + '.jpg')
+                new_characteristics_img.save('DetectionResults/[DETECTED] Image Results - ' + str(key)[0:5] + '.jpg')
             else:
                 new_characteristics_img.save(
-                    'DetectionResults/[NO DETECTIONS] Image Results - ' + str(act_result) + '.jpg')
+                    'DetectionResults/[NO DETECTIONS] Image Results - ' + str(key)[0:5] + '.jpg')
 
         # cv2.waitKey(0)
         # cv2.destroyAllWindows()
