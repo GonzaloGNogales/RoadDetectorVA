@@ -14,11 +14,14 @@ class Region:
         if not isinstance(other, Region):
             return False
 
-        return (int(self.x1) == int(other.x1) and
-                int(self.y1) == int(other.y1) and
-                int(self.x2) == int(other.x2) and
-                int(self.y2) == int(other.y2))
+        return (int(self.x1)-15 <= int(other.x1) <= int(self.x1)+15 and
+                int(self.y1)-15 <= int(other.y1) <= int(self.y1)+15 and
+                int(self.x2)-15 <= int(other.x2) <= int(self.x2)+15 and
+                int(self.y2)-15 <= int(other.y2) <= int(self.y2)+15)
 
     def __hash__(self):
         # Overriding hash function for Region class to store its instantiated objects in a regions set
         return hash((self.file_name, int(self.x1), int(self.y1), int(self.x2), int(self.y2)))
+
+    def show(self):
+        return self.x1, self.y1, self.x2, self.y2
