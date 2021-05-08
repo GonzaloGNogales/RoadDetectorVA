@@ -47,7 +47,6 @@ class MSER_Detector:
 
         for key in self.greyscale_images:
             # 2 - Filter with adaptive threshold for increasing the contrast of the points of interest
-            # self.greyscale_images[key] = cv2.adaptiveThreshold(self.greyscale_images[key], max_value, adaptive_method, threshold_type, block_size, c)
             mser_outputs[key] = (np.zeros((self.original_images[key].shape[0], self.original_images[key].shape[1], 3), dtype=np.uint8))
 
             # Detect polygons (regions) from the image
@@ -61,7 +60,6 @@ class MSER_Detector:
             # ********************************************************************************************************
 
             # Color rectangles and Mask extraction
-            candidate_regions = list()
             filtered_detected_regions = list()
             masks = list()
             original_image = np.copy(self.original_images[key])
@@ -74,9 +72,12 @@ class MSER_Detector:
                     y -= 5
                     w += 10
                     h += 10
-                    candidate_regions.append(region)  # Save polygon into candidate regions
-                    crop_img = original_image[y:y + h, x:x + w]  # crop_img = self.original_images[i][y:y + h, x:x + w]
-                    h, w, _ = crop_img.shape
+                    if w > h:
+                        h = w
+                    elif h > w:
+                        w = h
+                    crop_region = original_image[y:y + h, x:x + w]  # crop_region = self.original_images[i][y:y + h, x:x + w]
+                    h, w, _ = crop_region.shape
 
                     if h <= 0 or w <= 0:  # Control test for not getting inconsistent dimensions
                         continue
@@ -88,7 +89,7 @@ class MSER_Detector:
                     high_red_2 = np.array([179, 255, 255])
 
                     # Red mask creation for HSV color thresholding
-                    crop_img_HSV = cv2.cvtColor(crop_img, cv2.COLOR_BGR2HSV)
+                    crop_img_HSV = cv2.cvtColor(crop_region, cv2.COLOR_BGR2HSV)
                     red_mask_1 = cv2.inRange(crop_img_HSV, low_red_1, high_red_1)
                     red_mask_2 = cv2.inRange(crop_img_HSV, low_red_2, high_red_2)
                     red_mask = cv2.add(red_mask_1, red_mask_2)
@@ -97,7 +98,7 @@ class MSER_Detector:
                     red_mask_mean = np.mean(red_mask)
                     red_mask = cv2.resize(red_mask, (25, 25))
                     if 20 < red_mask_mean < 80:
-                        filtered_detected_regions.append(crop_img)
+                        filtered_detected_regions.append(crop_region)
                         masks.append(red_mask)
 
                     # *********************************************** DEBUG ********************************************
