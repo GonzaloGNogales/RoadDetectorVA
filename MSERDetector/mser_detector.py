@@ -47,12 +47,12 @@ class MSER_Detector:
 
         for key in self.greyscale_images:
             # 2 - Filter equalizing the histogram for increasing the contrast of the points of interest
-            # equalized_greyscale_image = cv2.equalizeHist(self.greyscale_images[key])
+            equalized_greyscale_image = cv2.equalizeHist(self.greyscale_images[key])
             mser_outputs[key] = (np.zeros((self.original_images[key].shape[0], self.original_images[key].shape[1], 3), dtype=np.uint8))
 
             # Detect polygons (regions) from the image
-            regions, _ = self.mser.detectRegions(self.greyscale_images[key])
-            # regions_equalized, _ = self.mser.detectRegions(equalized_greyscale_image)
+            # regions_non_equalized, _ = self.mser.detectRegions(self.greyscale_images[key])
+            regions, _ = self.mser.detectRegions(equalized_greyscale_image)
             # regions = regions_non_equalized + regions_equalized
 
             # Color MSER output **************************************************************************************
@@ -68,7 +68,7 @@ class MSER_Detector:
             original_image = np.copy(self.original_images[key])
             for region in regions:
                 x, y, w, h = cv2.boundingRect(region)
-                if abs(1 - w / h) <= 0.5:
+                if abs(1 - w / h) <= 0.8:
                     color_RGB = hsv_to_rgb(random(), 1, 1)  # Generate a random color
                     color_RGB = tuple(int(color * 255) for color in color_RGB)
 
@@ -81,31 +81,35 @@ class MSER_Detector:
                         h = w
                     elif h > w:
                         w = h
-                    crop_region = original_image[y:y + h, x:x + w]
 
-                    # Red levels in HSV approximation
-                    low_red_1 = np.array([0, 100, 20])
-                    high_red_1 = np.array([8, 255, 255])
-                    low_red_2 = np.array([175, 100, 20])
-                    high_red_2 = np.array([179, 255, 255])
+                    reg = Region('', x, y, x + w, y + h)  # Instantiate an object to store the actual bounding region
+                    for r in self.ground_truth[key]:
+                        if reg == r:
+                            crop_region = original_image[y:y + h, x:x + w]
 
-                    # Red mask creation for HSV color thresholding
-                    crop_img_HSV = cv2.cvtColor(crop_region, cv2.COLOR_BGR2HSV)
-                    red_mask_1 = cv2.inRange(crop_img_HSV, low_red_1, high_red_1)
-                    red_mask_2 = cv2.inRange(crop_img_HSV, low_red_2, high_red_2)
-                    red_mask = cv2.add(red_mask_1, red_mask_2)
+                            # Red levels in HSV approximation
+                            low_color_mask_1 = np.array([0, 100, 20])
+                            high_color_mask_1 = np.array([8, 255, 255])  # Review!!!
+                            low_color_mask_2 = np.array([175, 100, 20])
+                            high_color_mask_2 = np.array([179, 255, 255])
 
-                    # Establish a threshold for discriminating the probable signal red masks from the others
-                    red_mask_mean = np.mean(red_mask)
-                    red_mask = cv2.resize(red_mask, (25, 25))
-                    if 20 < red_mask_mean < 80:
-                        filtered_detected_regions.append(crop_region)
-                        masks.append(red_mask)
+                            # Red mask creation for HSV color thresholding
+                            crop_img_HSV = cv2.cvtColor(crop_region, cv2.COLOR_BGR2HSV)
+                            color_mask_1 = cv2.inRange(crop_img_HSV, low_color_mask_1, high_color_mask_1)
+                            color_mask_2 = cv2.inRange(crop_img_HSV, low_color_mask_2, high_color_mask_2)
+                            color_mask = cv2.add(color_mask_1, color_mask_2)
 
-                    # *********************************************** DEBUG ********************************************
-                    cv2.rectangle(self.original_images[key], (x, y), (x + w, y + h), color_RGB, 2)
-                    # we only want the regions not painting the rectangles for the final version
-                    # **************************************************************************************************
+                            # Establish a threshold for discriminating the probable signal red masks from the others
+                            color_mask_mean = np.mean(color_mask)
+                            color_mask = cv2.resize(color_mask, (25, 25))
+                            if 20 < color_mask_mean < 80:
+                                filtered_detected_regions.append(crop_region)
+                                masks.append(color_mask)
+
+                            # *********************************************** DEBUG ********************************************
+                            cv2.rectangle(self.original_images[key], (x, y), (x + w, y + h), color_RGB, 2)
+                            # we only want the regions not painting the rectangles for the final version
+                            # **************************************************************************************************
 
             training_output[key] = (masks, filtered_detected_regions, mser_outputs, self.original_images[key], self.greyscale_images[key])
 
