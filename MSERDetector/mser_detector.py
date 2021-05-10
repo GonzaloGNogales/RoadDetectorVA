@@ -28,8 +28,9 @@ class MSER_Detector:
                 with open(directory + actual) as gt:
                     lines = gt.readlines()
                     for line in lines:
-                        components = line.split(";")  # Extract components of the ground-truth line for creating a region object
-                        if len(components) == 6:
+                        # Extract components of the ground-truth line for creating a region object
+                        components = line.split(";")
+                        if len(components) == 6:  # Check if there are enough components to instantiate a region
                             region = Region(components[0], components[1], components[2], components[3], components[4], components[5])
                             regions_set = self.ground_truth.get(region.file_name)
                             if regions_set is None:  # Check if the regions set of this image is empty yet
@@ -68,7 +69,7 @@ class MSER_Detector:
             original_image = np.copy(self.original_images[key])
             for region in regions:
                 x, y, w, h = cv2.boundingRect(region)
-                if abs(1 - w / h) <= 0.8:
+                if abs(1 - w / h) <= 0.8:  # Filter detected regions with an aspect ratio very different from a square
                     color_RGB = hsv_to_rgb(random(), 1, 1)  # Generate a random color
                     color_RGB = tuple(int(color * 255) for color in color_RGB)
 
@@ -83,9 +84,19 @@ class MSER_Detector:
                         w = h
 
                     reg = Region('', x, y, x + w, y + h)  # Instantiate an object to store the actual bounding region
+
+                    # Search the candidate region through the possible known ground-truth regions of the actual image
                     for r in self.ground_truth[key]:
                         if reg == r:
-                            crop_region = original_image[y:y + h, x:x + w]
+                            """
+                            Thanks to the code structure that we made we can check this with
+                            the equals function of Region objects that redefines the == operator.
+                            In this definition of equals we consider the error that can exist when
+                            checking if a region is the same as the one in the ground-truth of an image.                          
+                            The scope of this is to reduce time complexity and to improve efficiency.
+                            """
+
+                            crop_region = original_image[y:y + h, x:x + w]  # Take the region from the original image
 
                             # Red levels in HSV approximation
                             low_red_mask_1 = np.array([0, 100, 20])
@@ -101,7 +112,7 @@ class MSER_Detector:
                             low_darkred_mask = np.array([170, 20, 30])
                             high_darkred_mask = np.array([179, 70, 100])
 
-                            # Red mask creation for HSV color thresholding
+                            # Red mask, Orange mask and Dark red mask creation for HSV color thresholding
                             crop_img_HSV = cv2.cvtColor(crop_region, cv2.COLOR_BGR2HSV)
                             red_mask_1 = cv2.inRange(crop_img_HSV, low_red_mask_1, high_red_mask_1)
                             red_mask_2 = cv2.inRange(crop_img_HSV, low_red_mask_2, high_red_mask_2)
@@ -109,10 +120,15 @@ class MSER_Detector:
                             orange_mask = cv2.inRange(crop_img_HSV, low_orange_mask, high_orange_mask)
                             darkred_mask = cv2.inRange(crop_img_HSV, low_darkred_mask, high_darkred_mask)
 
-                            # Establish a threshold for discriminating the probable signal red and orange masks from the others
+                            # Establish a threshold for discriminating the probable signal
+                            # red, orange and dark red masks from the others
                             darkred_mask = cv2.resize(darkred_mask, (25, 25))
                             orange_mask = cv2.resize(orange_mask, (25, 25))
                             red_mask = cv2.resize(red_mask, (25, 25))
+
+                            # Calculate the mean of the masks for filtering the candidate regions:
+                            # if a regions has lower than 10% of the mask color present or more than 80%
+                            # discards it and the algorithm continues with the next candidate region
                             red_mask_mean = red_mask.mean()
                             orange_mask_mean = orange_mask.mean()
                             darkred_mask_mean = darkred_mask.mean()
@@ -125,12 +141,16 @@ class MSER_Detector:
                                 else:
                                     masks.append(darkred_mask)
 
-                            # *********************************************** DEBUG ********************************************
+                            # *********************************************** DEBUG ************************************
                             cv2.rectangle(self.original_images[key], (x, y), (x + w, y + h), color_RGB, 2)
-                            # we only want the regions not painting the rectangles for the final version
-                            # **************************************************************************************************
+                            # we only want the regions for debugging, not painting the rectangles for the final version
+                            # ******************************************************************************************
 
-            training_output[key] = (masks, filtered_detected_regions, mser_outputs, self.original_images[key], self.greyscale_images[key])
+            training_output[key] = (masks,
+                                    filtered_detected_regions,
+                                    mser_outputs,
+                                    self.original_images[key],
+                                    self.greyscale_images[key])
 
         return training_output
 

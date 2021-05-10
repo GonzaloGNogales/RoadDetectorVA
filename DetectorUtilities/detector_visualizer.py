@@ -58,6 +58,3 @@ class Detector_Visualizer:
             else:
                 new_characteristics_img.save(
                     'DetectionResults/[NO DETECTIONS] Image Results - ' + str(key)[0:5] + '.jpg')
-
-        # cv2.waitKey(0)
-        # cv2.destroyAllWindows()

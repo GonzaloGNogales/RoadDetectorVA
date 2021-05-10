@@ -1,6 +1,7 @@
 class Region:
     def __init__(self, name, x1, y1, x2, y2, t=-1):
         # <file_name>;<x1>;<y1>;<x2>;<y2>;<type>
+        # When instantiating a Region object without type parameter, it is defined as -1 because we want to classify it later
         self.file_name = name
         self.x1 = x1
         self.y1 = y1
