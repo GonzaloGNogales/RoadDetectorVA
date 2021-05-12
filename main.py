@@ -27,9 +27,9 @@ if __name__ == "__main__":
         training_results = detector.fit()
 
         # DEBUG OR VISUALIZE TRAINING RESULTS
-        visualizer = Detector_Visualizer(training_results)
-        visualizer.setup_directory()
-        visualizer.save_to_dir()
+        # visualizer = Detector_Visualizer(training_results)
+        # visualizer.setup_directory()
+        # visualizer.save_to_dir()
 
         # NOT IMPLEMENTED YET
         # Load testing data
@@ -41,8 +41,11 @@ if __name__ == "__main__":
         print("Detector is not defined")
 
 
-    # cv2.imshow('Forbid Signal Resulting Mask', detector.forbid_mask)
-    # cv2.imshow('Warning Signal Resulting Mask', detector.warning_mask)
-    # cv2.imshow('Stop Signal Resulting Mask', detector.stop_mask)
-    # cv2.waitKey(0)
-    # cv2.destroyAllWindows()
+    f = cv2.resize(detector.forbid_mask, (500, 500))
+    w = cv2.resize(detector.warning_mask, (500, 500))
+    s = cv2.resize(detector.stop_mask, (500, 500))
+    cv2.imshow('Forbid Signal Resulting Mask', f)
+    cv2.imshow('Warning Signal Resulting Mask', w)
+    cv2.imshow('Stop Signal Resulting Mask', s)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
