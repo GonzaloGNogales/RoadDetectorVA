@@ -27,10 +27,11 @@ class Detector_Visualizer:
             characteristics = list()  # List of detected characteristics for storing the elements of a single image detection
             for m in range(len(masks)):
                 # Resize the masks and regions detected on an image and save them in the characteristics vector for displaying later
-                masks[m] = cv2.resize(masks[m], (500, 500))
+                mask, _ = masks[m]
+                mask = cv2.resize(mask, (500, 500))
                 regions[m] = cv2.resize(regions[m], (500, 500))
                 regions[m] = regions[m][:, :, ::-1]  # We have to shuffle the channels for getting RGB display of images
-                characteristics.append(Image.fromarray(masks[m]))
+                characteristics.append(Image.fromarray(mask))
                 characteristics.append(Image.fromarray(regions[m]))
 
             mser[key] = cv2.resize(mser[key], (500, 500))

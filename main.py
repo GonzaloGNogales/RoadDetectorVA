@@ -1,11 +1,7 @@
 import argparse
 from MSERDetector.mser_detector import *
 from DetectorUtilities.detector_visualizer import *
-
-# Signal types:
-# Forbid: [0, 1, 2, 3, 4, 5, 7, 8, 9, 10, 15, 16]
-# Danger: [11, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31]
-# Stop: [14]
+from DoubleMSERDetector.double_equalized_mser import *
 
 if __name__ == "__main__":
 
@@ -16,10 +12,14 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
+    detector = None
     # Create the detector
     if vars(args)['detector'] == 'mser':
         detector = MSER_Detector()
+    elif vars(args)['detector'] == 'double_equalized_mser':
+        detector = Double_Equalized_MSER_Detector()
 
+    if detector is not None:
         # Load training data
         detector.preprocess_data(vars(args)['train_path'])
 
@@ -37,3 +37,12 @@ if __name__ == "__main__":
 
         # Evaluate sign detections -> output/gt.txt = [detector.predict(test_image) for test_image in test_images]
         # detector.predict()
+    else:
+        print("Detector is not defined")
+
+
+    # cv2.imshow('Forbid Signal Resulting Mask', detector.forbid_mask)
+    # cv2.imshow('Warning Signal Resulting Mask', detector.warning_mask)
+    # cv2.imshow('Stop Signal Resulting Mask', detector.stop_mask)
+    # cv2.waitKey(0)
+    # cv2.destroyAllWindows()

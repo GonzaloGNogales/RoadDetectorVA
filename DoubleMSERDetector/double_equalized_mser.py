@@ -6,24 +6,18 @@ from colorsys import hsv_to_rgb
 from DetectorUtilities.region import *
 
 
-# Signal types:
-# Forbid: [0, 1, 2, 3, 4, 5, 7, 8, 9, 10, 15, 16]
-# Warning: [11, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31]
-# Stop: [14]
-
-class MSER_Detector:
+class Double_Equalized_MSER_Detector:
     def __init__(self, delta=3, max_variation=0.2, max_area=2000, min_area=50):
-        self.original_images = {}  # Original map for saving the original data (color detection)
+        self.original_images = {}   # Original map for saving the original data (color detection)
         self.greyscale_images = {}  # Map containing Greyscale images to feed MSER Detector (localization with MSER)
-        self.ground_truth = {}  # Map containing the regions of the present signals in the training images
+        self.ground_truth = {}      # Map containing the regions of the present signals in the training images
 
         # Initialize Maximally Stable Extremal Regions (MSER)
         self.mser = cv2.MSER_create(_delta=delta, _max_variation=max_variation, _max_area=max_area, _min_area=min_area)
 
-        # Initialize the resulting masks of the detector training
-        self.forbid_mask = None
-        self.warning_mask = None
-        self.stop_mask = None
+        # self.forbid_mask
+        # self.warning_mask
+        # self.stop_mask
 
     def preprocess_data(self, directory='train_10_ejemplos/'):
         # Read the input training images in color
@@ -37,8 +31,7 @@ class MSER_Detector:
                         # Extract components of the ground-truth line for creating a region object
                         components = line.split(";")
                         if len(components) == 6:  # Check if there are enough components to instantiate a region
-                            region = Region(components[0], components[1], components[2], components[3], components[4],
-                                            components[5])
+                            region = Region(components[0], components[1], components[2], components[3], components[4], components[5])
                             regions_set = self.ground_truth.get(region.file_name)
                             if regions_set is None:  # Check if the regions set of this image is empty yet
                                 self.ground_truth[region.file_name] = set()
@@ -50,21 +43,18 @@ class MSER_Detector:
 
     # DETECTOR TRAINING
     def fit(self):
-        forbid_set = {0, 1, 2, 3, 4, 5, 7, 8, 9, 10, 15, 16}
-        stop_set = {14}
-        mser_outputs = {}  # Output map containing MSER detected regions
-        training_output = {}  # Map for storing the outputs of the training phase, for visualization purposes
-        forbid_masks_list = list()
-        warning_masks_list = list()
-        stop_masks_list = list()
+        mser_outputs = {}      # Output map containing MSER detected regions
+        training_output = {}   # Map for storing the outputs of the training phase, for visualization purposes
 
         for key in self.greyscale_images:
             # 2 - Filter equalizing the histogram for increasing the contrast of the points of interest
-            mser_outputs[key] = (
-                np.zeros((self.original_images[key].shape[0], self.original_images[key].shape[1], 3), dtype=np.uint8))
+            equalized_greyscale_image = cv2.equalizeHist(self.greyscale_images[key])
+            mser_outputs[key] = (np.zeros((self.original_images[key].shape[0], self.original_images[key].shape[1], 3), dtype=np.uint8))
 
             # Detect polygons (regions) from the image
-            regions, _ = self.mser.detectRegions(self.greyscale_images[key])
+            regions_non_equalized, _ = self.mser.detectRegions(self.greyscale_images[key])
+            regions_equalized, _ = self.mser.detectRegions(equalized_greyscale_image)
+            regions = regions_non_equalized + regions_equalized
 
             # Color MSER output **************************************************************************************
             for region in regions:
@@ -93,12 +83,11 @@ class MSER_Detector:
                     elif h > w:
                         w = h
 
-                    reg = Region('', x, y, x + w, y + h)  # Instantiate an object to store the actual candidate region
+                    reg = Region('', x, y, x + w, y + h)  # Instantiate an object to store the actual bounding region
 
                     # Search the candidate region through the possible known ground-truth regions of the actual image
                     for r in self.ground_truth[key]:
                         if reg == r:
-                            reg.type = r.type  # Classify the region type when found in the actual image ground-truth
                             """
                             Thanks to the code structure that we made we can check this with
                             the equals function of Region objects that redefines the == operator.
@@ -111,7 +100,7 @@ class MSER_Detector:
 
                             # Red levels in HSV approximation
                             low_red_mask_1 = np.array([0, 100, 20])
-                            high_red_mask_1 = np.array([8, 255, 255])
+                            high_red_mask_1 = np.array([8, 255, 255])  # Review!!!
                             low_red_mask_2 = np.array([175, 100, 20])
                             high_red_mask_2 = np.array([179, 255, 255])
 
@@ -146,25 +135,16 @@ class MSER_Detector:
                             if 10 < red_mask_mean < 80 or 20 < orange_mask_mean < 80 or 15 < darkred_mask_mean < 80:
                                 filtered_detected_regions.append(crop_region)
                                 if red_mask_mean > orange_mask_mean and red_mask_mean > darkred_mask_mean:
-                                    masks.append((red_mask, reg))
+                                    masks.append(red_mask)
                                 elif orange_mask_mean > red_mask_mean and orange_mask_mean > darkred_mask_mean:
-                                    masks.append((orange_mask, reg))
+                                    masks.append(orange_mask)
                                 else:
-                                    masks.append((darkred_mask, reg))
+                                    masks.append(darkred_mask)
 
                             # *********************************************** DEBUG ************************************
                             cv2.rectangle(self.original_images[key], (x, y), (x + w, y + h), color_RGB, 2)
                             # we only want the regions for debugging, not painting the rectangles for the final version
                             # ******************************************************************************************
-
-            # Montar las listas de mascaras clasificandolas de forma eficiente usando sets
-            for mask, mask_region in masks:
-                if int(mask_region.type) in forbid_set:
-                    forbid_masks_list.append(mask)
-                elif int(mask_region.type) in stop_set:
-                    stop_masks_list.append(mask)
-                else:
-                    warning_masks_list.append(mask)
 
             training_output[key] = (masks,
                                     filtered_detected_regions,
@@ -172,34 +152,12 @@ class MSER_Detector:
                                     self.original_images[key],
                                     self.greyscale_images[key])
 
-        # Aqui tenemos que sacar la mascara media de cada tipo de entre todas las que tenemos
-        # Iterar las listas de mascaras y cuando tengamos la mascara media la guardamos en los atributos del detector
-        total_forbid = len(forbid_masks_list)
-        total_warning = len(warning_masks_list)
-        total_stop = len(stop_masks_list)
-
-        if total_forbid != 0:
-            sum_forbid = forbid_masks_list[0]
-            for f in range(1, total_forbid):
-                sum_forbid += forbid_masks_list[f]
-            self.forbid_mask = sum_forbid / total_forbid
-        elif total_warning != 0:
-            sum_warning = warning_masks_list[0]
-            for w in range(1, total_warning):
-                sum_warning += warning_masks_list[w]
-            self.warning_mask = sum_warning / total_warning
-        elif total_stop != 0:
-            sum_stop = stop_masks_list[0]
-            for s in range(1, total_stop):
-                sum_stop += stop_masks_list[s]
-            self.stop_mask = sum_stop / total_stop
-
-        # DEBUG THE RESULTING MEAN MASKS HERE with a print()
-
         return training_output
 
     # DETECTOR TESTING
     def predict(self):
         # 3 - Not implemented yet
+
+
 
         return
