@@ -2,6 +2,7 @@ import os
 import cv2
 import numpy as np
 from DetectorUtilities.region import *
+from DetectorUtilities.progress_bar import *
 
 
 class MSER_Detector:
@@ -18,9 +19,24 @@ class MSER_Detector:
         self.warning_mask = None
         self.stop_mask = None
 
-    def preprocess_data(self, directory='train_10_ejemplos/'):
-        # Read the input training images in color
+    def preprocess_data(self, directory, train):
+        # Clear the original and the greyscale images lists for reusing preprocessing test data with this function
+        self.original_images.clear()
+        self.greyscale_images.clear()
+        # Read the input training images in color and show the progress in the terminal with a helper function
+        total = len(os.listdir(directory))
+        it = 0
+        if train:
+            progress_bar(it, total, prefix='Loading train data:', suffix='Complete', length=50)
+        else:
+            progress_bar(it, total, prefix='Loading test data:', suffix='Complete', length=50)
         for actual in os.listdir(directory):
+            it += 1
+            if train:
+                progress_bar(it, total, prefix='Loading train data:', suffix='Complete', length=50)
+            else:
+                progress_bar(it, total, prefix='Loading test data:', suffix='Complete', length=50)
+
             if actual != 'gt.txt':  # Exclude txt containing signal information (location and class)
                 self.original_images[actual] = (cv2.imread(directory + actual))
             else:  # Initialize regions for training through the ground-truth file
@@ -38,8 +54,8 @@ class MSER_Detector:
                             self.ground_truth[region.file_name].add(region)
 
         # Create another list with the greyscale recolored images
-        for key in self.original_images:
-            self.greyscale_images[key] = (cv2.cvtColor(self.original_images[key], cv2.COLOR_BGR2GRAY))
+        for ori_image in self.original_images:
+            self.greyscale_images[ori_image] = (cv2.cvtColor(self.original_images[ori_image], cv2.COLOR_BGR2GRAY))
 
     # DETECTOR TRAINING
     def fit(self):
@@ -57,7 +73,13 @@ class MSER_Detector:
         warning_masks_list = list()
         stop_masks_list = list()
 
+        # Train with all the preprocessed images and show the progress in the terminal with the helper function
+        it = 0
+        total = len(self.greyscale_images)
+        progress_bar(it, total, prefix='Training progress:', suffix='Complete', length=50)
         for act_img in self.greyscale_images:
+            it += 1
+            progress_bar(it, total, prefix='Training progress:', suffix='Complete', length=50)
             # Detect polygons (regions) from the image using mser detect regions operation
             regions, _ = self.mser.detectRegions(self.greyscale_images[act_img])
 
@@ -196,6 +218,7 @@ class MSER_Detector:
             for s in range(1, total_stop):
                 cv2.add(sum_stop, stop_masks_list[s])
             self.stop_mask = sum_stop / total_stop
+        print("Forbid|Warning|Stop Masks calculation finished successfully!")
 
         # return training_output
 

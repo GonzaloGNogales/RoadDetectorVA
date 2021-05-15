@@ -21,31 +21,22 @@ if __name__ == "__main__":
 
     if detector is not None:
         # Load training data
-        detector.preprocess_data(vars(args)['train_path'])
+        detector.preprocess_data(vars(args)['train_path'], True)
 
         # Training
-        training_results = detector.fit()
+        # training_results = detector.fit()
+        detector.fit()
 
         # DEBUG OR VISUALIZE TRAINING RESULTS
         # visualizer = Detector_Visualizer(training_results)
         # visualizer.setup_directory()
         # visualizer.save_to_dir()
 
-        # NOT IMPLEMENTED YET
         # Load testing data
-        # detector.preprocess_data()
+        detector.preprocess_data(vars(args)['test_path'], False)
 
         # Evaluate sign detections -> output/gt.txt = [detector.predict(test_image) for test_image in test_images]
         # detector.predict()
     else:
-        print("Detector is not defined")
-
-
-    f = cv2.resize(detector.forbid_mask, (500, 500))
-    w = cv2.resize(detector.warning_mask, (500, 500))
-    s = cv2.resize(detector.stop_mask, (500, 500))
-    cv2.imshow('Forbid Signal Resulting Mask', f)
-    cv2.imshow('Warning Signal Resulting Mask', w)
-    cv2.imshow('Stop Signal Resulting Mask', s)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
+        print("Detector is not specified, please introduce \"--detector <detector_name>\" "
+              "in the command line of the terminal")
