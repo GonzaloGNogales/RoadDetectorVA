@@ -1,16 +1,8 @@
 import os
 import cv2
 import numpy as np
-from random import random
-from colorsys import hsv_to_rgb
 from DetectorUtilities.region import *
 
-
-# Signal types:
-# Forbid: [0, 1, 2, 3, 4, 5, 7, 8, 9, 10, 15, 16]
-# Warning: [11, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31]
-# Stop: [14]
-# Ceda: [13]
 
 class MSER_Detector:
     def __init__(self, delta=3, max_variation=0.2, max_area=2000, min_area=50):
@@ -45,29 +37,28 @@ class MSER_Detector:
                                 self.ground_truth[region.file_name] = set()
                             self.ground_truth[region.file_name].add(region)
 
-        # 1 - Create another list with the greyscale recolored images
+        # Create another list with the greyscale recolored images
         for key in self.original_images:
             self.greyscale_images[key] = (cv2.cvtColor(self.original_images[key], cv2.COLOR_BGR2GRAY))
 
     # DETECTOR TRAINING
     def fit(self):
+        # Sets for classifying the best found regions in O(1) complexity using (_region_ in _set_)
         forbid_set = {0, 1, 2, 3, 4, 5, 7, 8, 9, 10, 15, 16}
         warning_set = {11, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31}
         stop_set = {14}
         yield_set = {13}
-        mser_outputs = {}  # Output map containing MSER detected regions
-        training_output = {}  # Map for storing the outputs of the training phase, for visualization purposes
+
+        # training_output = {}  # Map for storing the outputs of the training phase, for visualization purposes
+
+        # Declare the masks lists for storing the already classified ones into forbid/warning/stop classes to calculate
+        # their mean mask for the detector
         forbid_masks_list = list()
         warning_masks_list = list()
         stop_masks_list = list()
 
         for act_img in self.greyscale_images:
-            # 2 - Filter equalizing the histogram for increasing the contrast of the points of interest
-            mser_outputs[act_img] = (
-                np.zeros((self.original_images[act_img].shape[0], self.original_images[act_img].shape[1], 3),
-                         dtype=np.uint8))
-
-            # Detect polygons (regions) from the image
+            # Detect polygons (regions) from the image using mser detect regions operation
             regions, _ = self.mser.detectRegions(self.greyscale_images[act_img])
 
             # Color rectangles and Mask extraction
@@ -103,6 +94,9 @@ class MSER_Detector:
                                 """
                                 # Classify the region type when found in the actual image ground-truth
                                 reg.type = int(r.type)
+                                # Calculate the offset error of the candidate region to filter regions that are not
+                                # centered on the target, this is needed for reducing execution time and to save the
+                                # best options, we will keep the found best option on the best regions map in O(1)
                                 error = abs(reg.x1 - int(r.x1)) + abs(reg.y1 - int(r.y1)) + \
                                         abs(reg.x2 - int(r.x2)) + abs(reg.y2 - int(r.y2))
                                 if best_regions.get(reg.type) is None:
@@ -114,8 +108,9 @@ class MSER_Detector:
 
             for best_region, _ in best_regions.values():
 
+                # Extract the region from the original image to process the mask
                 crop_region = original_image[int(best_region.y1):int(best_region.y2),
-                              int(best_region.x1):int(best_region.x2)]  # Take the region from the original image
+                              int(best_region.x1):int(best_region.x2)]
 
                 # Red levels in HSV approximation
                 low_red_mask_1 = np.array([0, 120, 20])
@@ -127,7 +122,7 @@ class MSER_Detector:
                 low_orange_mask = np.array([5, 100, 80])
                 high_orange_mask = np.array([15, 140, 140])
 
-                # Dark Red levels in HSV approximation
+                # Dark Red levels in HSV approximation, this is needed for dark signals that are near black color
                 low_darkred_mask = np.array([170, 25, 35])
                 # high_darkred_mask = np.array([179, 70, 100])
                 high_darkred_mask = np.array([179, 170, 180])
@@ -147,7 +142,7 @@ class MSER_Detector:
                 red_mask = cv2.resize(red_mask, (25, 25))
 
                 # Calculate the mean of the masks for filtering the candidate regions:
-                # if a regions has lower than 10% of the mask color present or more than 80%
+                # if a regions has lower than 10/20/15% of the mask color present or more than 70%
                 # discards it and the algorithm continues with the next candidate region
                 red_mask_mean = red_mask.mean()
                 orange_mask_mean = orange_mask.mean()
@@ -161,7 +156,7 @@ class MSER_Detector:
                     else:
                         masks.append((darkred_mask, best_region))
 
-            # Montar las listas de mascaras clasificandolas de forma eficiente usando sets
+            # Build mask lists classifying them using containing operation (in) on sets for O(1) complexity
             for mask, mask_region in masks:
                 if mask_region.type in forbid_set:
                     forbid_masks_list.append(mask)
@@ -173,38 +168,36 @@ class MSER_Detector:
                 elif mask_region.type in warning_set:
                     warning_masks_list.append(mask)
 
-            training_output[act_img] = (masks,
-                                        filtered_detected_regions,
-                                        mser_outputs,
-                                        self.original_images[act_img],
-                                        self.greyscale_images[act_img])
+            # Save interesting data to visualize with the detector visualizer to make debugging easier for devs
+            # training_output[act_img] = (masks,
+            #                             filtered_detected_regions,
+            #                             mser_outputs,
+            #                             self.original_images[act_img],
+            #                             self.greyscale_images[act_img])
 
-        # Aqui tenemos que sacar la mascara media de cada tipo de entre todas las que tenemos
-        # Iterar las listas de mascaras y cuando tengamos la mascara media la guardamos en los atributos del detector
+        # Get length of mask lists for dividing in the mean calculation
         total_forbid = len(forbid_masks_list)
         total_warning = len(warning_masks_list)
         total_stop = len(stop_masks_list)
 
+        # Mean calculation block
         if total_forbid != 0:
             sum_forbid = forbid_masks_list[0]
             for f in range(1, total_forbid):
                 cv2.add(sum_forbid, forbid_masks_list[f])
-                # sum_forbid += forbid_masks_list[f]
             self.forbid_mask = sum_forbid / total_forbid
         if total_warning != 0:
             sum_warning = warning_masks_list[0]
             for w in range(1, total_warning):
                 cv2.add(sum_warning, warning_masks_list[w])
-                # sum_warning += warning_masks_list[w]
             self.warning_mask = sum_warning / total_warning
         if total_stop != 0:
             sum_stop = stop_masks_list[0]
             for s in range(1, total_stop):
                 cv2.add(sum_stop, stop_masks_list[s])
-                # sum_stop += stop_masks_list[s]
             self.stop_mask = sum_stop / total_stop
 
-        return training_output
+        # return training_output
 
     # DETECTOR TESTING
     def predict(self):
