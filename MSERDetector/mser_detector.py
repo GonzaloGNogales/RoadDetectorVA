@@ -77,7 +77,7 @@ class MSER_Detector:
             best_regions = {}
             for region in regions:
                 x, y, w, h = cv2.boundingRect(region)
-                if abs(1 - w / h) <= 0.8:  # Filter detected regions with an aspect ratio very different from a square
+                if abs(1 - (w / h)) <= 0.4:  # Filter detected regions with an aspect ratio very different from a square
                     # Adjust the width and height to obtain a perfect square for the region
                     x = max(x - 5, 0)
                     y = max(y - 5, 0)
@@ -188,17 +188,20 @@ class MSER_Detector:
         if total_forbid != 0:
             sum_forbid = forbid_masks_list[0]
             for f in range(1, total_forbid):
-                sum_forbid += forbid_masks_list[f]
+                cv2.add(sum_forbid, forbid_masks_list[f])
+                # sum_forbid += forbid_masks_list[f]
             self.forbid_mask = sum_forbid / total_forbid
         if total_warning != 0:
             sum_warning = warning_masks_list[0]
             for w in range(1, total_warning):
-                sum_warning += warning_masks_list[w]
+                cv2.add(sum_warning, warning_masks_list[w])
+                # sum_warning += warning_masks_list[w]
             self.warning_mask = sum_warning / total_warning
         if total_stop != 0:
             sum_stop = stop_masks_list[0]
             for s in range(1, total_stop):
-                sum_stop += stop_masks_list[s]
+                cv2.add(sum_stop, stop_masks_list[s])
+                # sum_stop += stop_masks_list[s]
             self.stop_mask = sum_stop / total_stop
 
         return training_output
