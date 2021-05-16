@@ -1,4 +1,5 @@
 import os
+import shutil
 import cv2
 import numpy as np
 from DetectorUtilities.region import *
@@ -29,29 +30,39 @@ class MSER_Detector:
         if train:
             progress_bar(it, total, prefix='Loading train data:', suffix='Complete', length=50)
         else:
-            progress_bar(it, total, prefix='Loading test data:', suffix='Complete', length=50)
+            progress_bar(it, total, prefix='Loading test data: ', suffix='Complete', length=50)
         for actual in os.listdir(directory):
-            it += 1
-            if train:
-                progress_bar(it, total, prefix='Loading train data:', suffix='Complete', length=50)
-            else:
-                progress_bar(it, total, prefix='Loading test data:', suffix='Complete', length=50)
+            if os.path.isfile(directory + actual):
+                it += 1
+                if train:
+                    progress_bar(it, total, prefix='Loading train data:', suffix='Complete', length=50)
+                else:
+                    progress_bar(it, total, prefix='Loading test data: ', suffix='Complete', length=50)
 
-            if actual != 'gt.txt':  # Exclude txt containing signal information (location and class)
-                self.original_images[actual] = (cv2.imread(directory + actual))
-            else:  # Initialize regions for training through the ground-truth file
-                with open(directory + actual) as gt:
-                    lines = gt.readlines()
-                    for line in lines:
-                        # Extract components of the ground-truth line for creating a region object
-                        components = line.split(";")
-                        if len(components) == 6:  # Check if there are enough components to instantiate a region
-                            region = Region(components[0], components[1], components[2], components[3], components[4],
-                                            components[5])
-                            regions_set = self.ground_truth.get(region.file_name)
-                            if regions_set is None:  # Check if the regions set of this image is empty yet
-                                self.ground_truth[region.file_name] = set()
-                            self.ground_truth[region.file_name].add(region)
+                # Exclude txt containing signal information (location and class)
+                if actual != 'gt.txt' and (actual.endswith('.ppm') or actual.endswith('.jpg')):
+                    self.original_images[actual] = (cv2.imread(directory + actual))
+                else:  # Initialize regions for training through the ground-truth file
+                    with open(directory + actual) as gt:
+                        lines = gt.readlines()
+                        for line in lines:
+                            # Extract components of the ground-truth line for creating a region object
+                            components = line.split(";")
+                            if len(components) == 6:  # Check if there are enough components to instantiate a region
+                                region = Region(components[0], components[1], components[2], components[3], components[4],
+                                                components[5])
+                                regions_set = self.ground_truth.get(region.file_name)
+                                if regions_set is None:  # Check if the regions set of this image is empty yet
+                                    self.ground_truth[region.file_name] = set()
+                                self.ground_truth[region.file_name].add(region)
+            else:
+                # If we are processing a directory with wrong format we undo everything we read and stop the algorithm
+                if train:
+                    print('The train directory is invalid and training data preprocess failed')
+                else:
+                    print('The test directory is invalid and testing data preprocess failed')
+                self.original_images.clear()
+                break
 
         # Create another list with the greyscale recolored images
         for ori_image in self.original_images:
@@ -76,10 +87,11 @@ class MSER_Detector:
         # Train with all the preprocessed images and show the progress in the terminal with the helper function
         it = 0
         total = len(self.greyscale_images)
-        progress_bar(it, total, prefix='Training progress:', suffix='Complete', length=50)
+        if total != 0:
+            progress_bar(it, total, prefix='Training progress: ', suffix='Complete', length=50)
         for act_img in self.greyscale_images:
             it += 1
-            progress_bar(it, total, prefix='Training progress:', suffix='Complete', length=50)
+            progress_bar(it, total, prefix='Training progress: ', suffix='Complete', length=50)
             # Detect polygons (regions) from the train image using mser detect regions operation
             regions, _ = self.mser.detectRegions(self.greyscale_images[act_img])
 
@@ -218,49 +230,119 @@ class MSER_Detector:
             for s in range(1, total_stop):
                 cv2.add(sum_stop, stop_masks_list[s])
             self.stop_mask = sum_stop / total_stop
-        print("Forbid|Warning|Stop Masks calculation finished successfully!")
+        if total != 0:
+            print("Forbid|Warning|Stop Masks calculation finished successfully!")
 
+        return self.forbid_mask is not None and self.warning_mask is not None and self.stop_mask is not None
         # return training_output
 
     # DETECTOR TESTING
-    def predict(self):
-        # Sets for classifying the signal found regions in O(1) complexity using (_region_ in _set_)
-        forbid_set = {0, 1, 2, 3, 4, 5, 7, 8, 9, 10, 15, 16}
-        warning_set = {11, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31}
-        stop_set = {14}
-        yield_set = {13}
+    def predict(self, train_status):
+        if train_status:
+            # Sets for classifying the signal found regions in O(1) complexity using (_region_ in _set_)
+            forbid_set = {0, 1, 2, 3, 4, 5, 7, 8, 9, 10, 15, 16}
+            warning_set = {11, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31}
+            stop_set = {14}
+            yield_set = {13}
 
-        # Test with all the preprocessed images and show the progress in the terminal with the helper function
-        it = 0
-        total = len(self.greyscale_images)
-        progress_bar(it, total, prefix='Testing progress:', suffix='Complete', length=50)
-        for act_img in self.greyscale_images:
-            it += 1
-            progress_bar(it, total, prefix='Testing progress:', suffix='Complete', length=50)
+            detected_regions = {}
 
-            # Detect polygons (regions) from the test image using mser detect regions operation
-            regions, _ = self.mser.detectRegions(self.greyscale_images[act_img])
+            # Prepare the detection results directory
+            # Check if results folder already exists and clear it, if not create it
+            if os.path.isdir('resultado_imgs/'):
+                shutil.rmtree('resultado_imgs/')
+            os.mkdir('resultado_imgs/')
 
-            original_image = np.copy(self.original_images[act_img])
-            for region in regions:
-                x, y, w, h = cv2.boundingRect(region)
+            if os.path.isfile('resultado_imgs/resultado.txt'):
+                os.remove('resultado_imgs/resultado.txt')
+            results = open('resultado_imgs/resultado.txt', 'w')
 
-                # Extract the region from the original image to process the mask
-                crop_region = original_image[y:y + h, x:x + w]
+            # Test with all the preprocessed images and show the progress in the terminal with the helper function
+            it = 0
+            total = len(self.greyscale_images)
+            if total != 0:
+                progress_bar(it, total, prefix='Testing progress:  ', suffix='Complete', length=50)
+            for act_img in self.greyscale_images:
+                it += 1
+                progress_bar(it, total, prefix='Testing progress:  ', suffix='Complete', length=50)
 
-                # Change each mser detected region to 25x25 to correlate with the training masks
-                crop_region = cv2.resize(crop_region, (25, 25))
+                # Detect polygons (regions) from the test image using mser detect regions operation
+                regions, _ = self.mser.detectRegions(self.greyscale_images[act_img])
 
-                # Extract the M red mask from the region to compare with the training ones
-                # Red levels in HSV approximation
-                low_red_mask_1 = np.array([0, 120, 20])
-                high_red_mask_1 = np.array([8, 240, 255])
-                low_red_mask_2 = np.array([175, 120, 20])
-                high_red_mask_2 = np.array([179, 240, 255])
+                original_image = np.copy(self.original_images[act_img])
+                for region in regions:
+                    x, y, w, h = cv2.boundingRect(region)
+                    if abs(1 - (w / h)) <= 0.4:  # Filter detected regions with an aspect ratio very different from a square
+                        # Adjust the width and height to obtain a perfect square for the region
+                        x = max(x - 5, 0)
+                        y = max(y - 5, 0)
+                        w += 10
+                        h += 10
+                        if w > h:
+                            h = w
+                        elif h > w:
+                            w = h
 
-                crop_img_HSV = cv2.cvtColor(crop_region, cv2.COLOR_BGR2HSV)  # Change to HSV
-                red_mask_1 = cv2.inRange(crop_img_HSV, low_red_mask_1, high_red_mask_1)
-                red_mask_2 = cv2.inRange(crop_img_HSV, low_red_mask_2, high_red_mask_2)
-                M = cv2.add(red_mask_1, red_mask_2)  # M is the red mask extracted from the detected region
+                        reg = Region('', x, y, x + w,
+                                     y + h)  # Instantiate an object to store the actual candidate region
 
-                # Correlate M with each mask obtained by the training
+                        # Extract the region from the original image to process the mask
+                        crop_region = original_image[y:y + h, x:x + w]
+
+                        # Change each mser detected region to 25x25 to correlate with the training masks
+                        crop_region = cv2.resize(crop_region, (25, 25))
+
+                        # Extract the M red mask from the region to compare with the training ones
+                        # Red levels in HSV approximation
+                        low_red_mask_1 = np.array([0, 120, 20])
+                        high_red_mask_1 = np.array([8, 240, 255])
+                        low_red_mask_2 = np.array([175, 120, 20])
+                        high_red_mask_2 = np.array([179, 240, 255])
+
+                        crop_img_HSV = cv2.cvtColor(crop_region, cv2.COLOR_BGR2HSV)  # Change to HSV
+                        red_mask_1 = cv2.inRange(crop_img_HSV, low_red_mask_1, high_red_mask_1)
+                        red_mask_2 = cv2.inRange(crop_img_HSV, low_red_mask_2, high_red_mask_2)
+                        M = cv2.add(red_mask_1, red_mask_2)  # M is the red mask extracted from the detected region
+
+                        M_mean = M.mean()
+                        if 20 < M_mean < 70:
+                            # Correlate M with each mask obtained by the training
+                            no_signal_threshold = 20.0
+                            # Multiply element by element
+                            forbid_correlated = M * self.forbid_mask
+                            warning_correlated = M * self.warning_mask
+                            stop_correlated = M * self.stop_mask
+
+                            # Transform every pixel != 0 to 255 value for calculating score
+                            _, forbid_correlated = cv2.threshold(forbid_correlated, 0, 255, cv2.THRESH_BINARY)
+                            _, warning_correlated = cv2.threshold(warning_correlated, 0, 255, cv2.THRESH_BINARY)
+                            _, stop_correlated = cv2.threshold(stop_correlated, 0, 255, cv2.THRESH_BINARY)
+
+                            # Add all the matching points between them to obtain a correlation coefficient
+                            forbid_corr_coefficient = forbid_correlated.sum()
+                            warning_corr_coefficient = warning_correlated.sum()
+                            stop__corr_coefficient = stop_correlated.sum()
+
+                            # Score computation -> Number of coincident pixels / Total number of pixels * 100 (percent)
+                            forbid_corr_score = ((forbid_corr_coefficient / 255) / 625) * 100
+                            warning_corr_score = ((warning_corr_coefficient / 255) / 625) * 100
+                            stop__corr_score = ((stop__corr_coefficient / 255) / 625) * 100
+
+                            # Filter the scores to classify the regions reg.type = type
+
+                            # *************** Write the Ground Truth &  Draw Bounding Rectangles & Save ***************
+                            results.write(act_img + ';' + str(reg.x1) + ';' + str(reg.y1)
+                                                  + ';' + str(reg.x2) + ';' + str(reg.y2)
+                                                  + ';' + str(reg.type) + ';' + str(int(forbid_corr_score)) + '\n')
+
+                            cv2.rectangle(self.original_images[act_img], (reg.x1, reg.y1), (reg.x2, reg.y2),
+                                          (0, 0, 255), 2)
+                            # *****************************************************************************************
+
+                # Save the detected regions image into the results directory
+                cv2.imwrite(os.path.join('resultado_imgs/', act_img), self.original_images[act_img])
+
+            print("Testing finished, you can find the results inside \"resultado_imgs\" directory :)")
+
+        else:
+            print('Testing failed due to lack of some training masks')

@@ -13,19 +13,25 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     detector = None
+    train_path = None
+    test_path = None
     # Create the detector
     if vars(args)['detector'] == 'mser':
         detector = MSER_Detector()
     elif vars(args)['detector'] == 'double_equalized_mser':
         detector = Double_Equalized_MSER_Detector()
 
-    if detector is not None:
+    # Extract the the train & test paths
+    train_path = vars(args)['train_path']
+    test_path = vars(args)['test_path']
+
+    if detector is not None and train_path != '' and test_path != '':
         # Load training data
-        detector.preprocess_data(vars(args)['train_path'], True)
+        detector.preprocess_data(train_path, True)
 
         # Training
         # training_results = detector.fit()
-        detector.fit()
+        status = detector.fit()
 
         # DEBUG OR VISUALIZE TRAINING RESULTS
         # visualizer = Detector_Visualizer(training_results)
@@ -33,10 +39,10 @@ if __name__ == "__main__":
         # visualizer.save_to_dir()
 
         # Load testing data
-        detector.preprocess_data(vars(args)['test_path'], False)
+        detector.preprocess_data(test_path, False)
 
         # Evaluate sign detections -> output/gt.txt = [detector.predict(test_image) for test_image in test_images]
-        # detector.predict()
+        detector.predict(status)
     else:
-        print("Detector is not specified, please introduce \"--detector <detector_name>\" "
-              "in the command line of the terminal")
+        print("Please introduce the options \"--train_path <train_path> --test_path <test_path> "
+              "--detector <detector_name>\" in the command line of the terminal")
