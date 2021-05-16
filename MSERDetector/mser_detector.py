@@ -80,7 +80,7 @@ class MSER_Detector:
         for act_img in self.greyscale_images:
             it += 1
             progress_bar(it, total, prefix='Training progress:', suffix='Complete', length=50)
-            # Detect polygons (regions) from the image using mser detect regions operation
+            # Detect polygons (regions) from the train image using mser detect regions operation
             regions, _ = self.mser.detectRegions(self.greyscale_images[act_img])
 
             # Color rectangles and Mask extraction
@@ -224,6 +224,43 @@ class MSER_Detector:
 
     # DETECTOR TESTING
     def predict(self):
-        # 3 - Not implemented yet
+        # Sets for classifying the signal found regions in O(1) complexity using (_region_ in _set_)
+        forbid_set = {0, 1, 2, 3, 4, 5, 7, 8, 9, 10, 15, 16}
+        warning_set = {11, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31}
+        stop_set = {14}
+        yield_set = {13}
 
-        return
+        # Test with all the preprocessed images and show the progress in the terminal with the helper function
+        it = 0
+        total = len(self.greyscale_images)
+        progress_bar(it, total, prefix='Testing progress:', suffix='Complete', length=50)
+        for act_img in self.greyscale_images:
+            it += 1
+            progress_bar(it, total, prefix='Testing progress:', suffix='Complete', length=50)
+
+            # Detect polygons (regions) from the test image using mser detect regions operation
+            regions, _ = self.mser.detectRegions(self.greyscale_images[act_img])
+
+            original_image = np.copy(self.original_images[act_img])
+            for region in regions:
+                x, y, w, h = cv2.boundingRect(region)
+
+                # Extract the region from the original image to process the mask
+                crop_region = original_image[y:y + h, x:x + w]
+
+                # Change each mser detected region to 25x25 to correlate with the training masks
+                crop_region = cv2.resize(crop_region, (25, 25))
+
+                # Extract the M red mask from the region to compare with the training ones
+                # Red levels in HSV approximation
+                low_red_mask_1 = np.array([0, 120, 20])
+                high_red_mask_1 = np.array([8, 240, 255])
+                low_red_mask_2 = np.array([175, 120, 20])
+                high_red_mask_2 = np.array([179, 240, 255])
+
+                crop_img_HSV = cv2.cvtColor(crop_region, cv2.COLOR_BGR2HSV)  # Change to HSV
+                red_mask_1 = cv2.inRange(crop_img_HSV, low_red_mask_1, high_red_mask_1)
+                red_mask_2 = cv2.inRange(crop_img_HSV, low_red_mask_2, high_red_mask_2)
+                M = cv2.add(red_mask_1, red_mask_2)  # M is the red mask extracted from the detected region
+
+                # Correlate M with each mask obtained by the training
