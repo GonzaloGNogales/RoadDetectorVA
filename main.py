@@ -41,7 +41,7 @@ if __name__ == "__main__":
         # Load testing data
         detector.preprocess_data(test_path, False)
 
-        # Evaluate sign detections -> output/gt.txt = [detector.predict(test_image) for test_image in test_images]
+        # Testing, see results in ./resultado_imgs/
         detector.predict(status)
     else:
         print("Please introduce the options \"--train_path <train_path> --test_path <test_path> "
