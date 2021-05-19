@@ -1,6 +1,5 @@
 import argparse
 from MSERDetector.mser_detector import *
-from DetectorUtilities.detector_visualizer import *
 from DoubleMSERDetector.double_equalized_mser import *
 
 if __name__ == "__main__":
@@ -12,9 +11,11 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
+    # Initialize variable arguments to None
     detector = None
     train_path = None
     test_path = None
+
     # Create the detector
     if vars(args)['detector'] == 'mser':
         detector = MSER_Detector()
@@ -30,7 +31,6 @@ if __name__ == "__main__":
         detector.preprocess_data(train_path, True)
 
         # Training
-        # training_results = detector.fit()
         status = detector.fit()
 
         # DEBUG OR VISUALIZE TRAINING RESULTS
