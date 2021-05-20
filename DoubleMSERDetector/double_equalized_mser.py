@@ -19,6 +19,10 @@ class Double_Equalized_MSER_Detector:
         self.forbid_mask = None
         self.warning_mask = None
         self.stop_mask = None
+        # Pixel proportion of the masks to calculate the score in an easier way
+        self.forbid_pixels_proportion = 0
+        self.warning_pixels_proportion = 0
+        self.stop_pixels_proportion = 0
 
     def preprocess_data(self, directory, train):
         # Clear the original and the greyscale images lists for reusing preprocessing test data with this function
@@ -49,7 +53,8 @@ class Double_Equalized_MSER_Detector:
                             # Extract components of the ground-truth line for creating a region object
                             components = line.split(";")
                             if len(components) == 6:  # Check if there are enough components to instantiate a region
-                                region = Region(components[0], components[1], components[2], components[3], components[4],
+                                region = Region(components[0], components[1], components[2], components[3],
+                                                components[4],
                                                 components[5])
                                 regions_set = self.ground_truth.get(region.file_name)
                                 if regions_set is None:  # Check if the regions set of this image is empty yet
@@ -76,13 +81,11 @@ class Double_Equalized_MSER_Detector:
         stop_set = {14}
         yield_set = {13}
 
-        # training_output = {}  # Map for storing the outputs of the training phase, for visualization purposes
-
         # Declare the masks lists for storing the already classified ones into forbid/warning/stop classes to calculate
         # their mean mask for the detector
-        forbid_masks_list = list()
-        warning_masks_list = list()
-        stop_masks_list = list()
+        forbid_regions_list = list()
+        warning_regions_list = list()
+        stop_regions_list = list()
 
         # Train with all the preprocessed images and show the progress in the terminal with the helper function
         it = 0
@@ -93,12 +96,16 @@ class Double_Equalized_MSER_Detector:
             it += 1
             progress_bar(it, total, prefix='Training progress: ', suffix='Complete', length=50)
             # Detect polygons (regions) from the train image using mser detect regions operation
-            regions, _ = self.mser.detectRegions(self.greyscale_images[act_img])
+
+            # Equalize the histogram of the image to distribute the levels of color homogeneously
+            equalized_greyscale_image = cv2.equalizeHist(self.greyscale_images[act_img])
+
+            # Perform the maximal stable extreme regions detection (MSER) 2 times for getting the eq_reg & non_eq_reg
+            regions_non_equalized, _ = self.mser.detectRegions(self.greyscale_images[act_img])
+            regions_equalized, _ = self.mser.detectRegions(equalized_greyscale_image)
+            regions = regions_non_equalized + regions_equalized
 
             # Color rectangles and Mask extraction
-            filtered_detected_regions = list()
-            masks = list()
-            original_image = np.copy(self.original_images[act_img])
             best_regions = {}
             for region in regions:
                 x, y, w, h = cv2.boundingRect(region)
@@ -143,112 +150,90 @@ class Double_Equalized_MSER_Detector:
             for best_region, _ in best_regions.values():
 
                 # Extract the region from the original image to process the mean
-                crop_region = original_image[int(best_region.y1):int(best_region.y2),
+                crop_region = self.original_images[act_img][int(best_region.y1):int(best_region.y2),
                               int(best_region.x1):int(best_region.x2)]
 
-                # Red levels in HSV approximation
-                low_red_mask_1 = np.array([0, 120, 20])
-                high_red_mask_1 = np.array([8, 240, 255])
-                low_red_mask_2 = np.array([175, 120, 20])
-                high_red_mask_2 = np.array([179, 240, 255])
+                crop_region = cv2.resize(crop_region, (25, 25))  # Normalize all the regions to 25x25 pixels
 
-                # Orange levels in HSV approximation
-                low_orange_mask = np.array([5, 100, 80])
-                high_orange_mask = np.array([15, 140, 140])
-
-                # Dark Red levels in HSV approximation, this is needed for dark signals that are near black color
-                low_darkred_mask = np.array([170, 25, 35])
-                # high_darkred_mask = np.array([179, 70, 100])
-                high_darkred_mask = np.array([179, 170, 180])
-
-                # Red mask, Orange mask and Dark red mask creation for HSV color thresholding
-                crop_img_HSV = cv2.cvtColor(crop_region, cv2.COLOR_BGR2HSV)
-                red_mask_1 = cv2.inRange(crop_img_HSV, low_red_mask_1, high_red_mask_1)
-                red_mask_2 = cv2.inRange(crop_img_HSV, low_red_mask_2, high_red_mask_2)
-                red_mask = cv2.add(red_mask_1, red_mask_2)
-                orange_mask = cv2.inRange(crop_img_HSV, low_orange_mask, high_orange_mask)
-                darkred_mask = cv2.inRange(crop_img_HSV, low_darkred_mask, high_darkred_mask)
-
-                # Establish a threshold for discriminating the probable signal
-                # red, orange and dark red masks from the others
-                darkred_mask = cv2.resize(darkred_mask, (25, 25))
-                orange_mask = cv2.resize(orange_mask, (25, 25))
-                red_mask = cv2.resize(red_mask, (25, 25))
-
-                # Calculate the mean of the masks for filtering the candidate regions:
-                # if a regions has lower than 10/20/15% of the mask color present or more than 70%
-                # discards it and the algorithm continues with the next candidate region
-                red_mask_mean = red_mask.mean()
-                orange_mask_mean = orange_mask.mean()
-                darkred_mask_mean = darkred_mask.mean()
-                if 10 < red_mask_mean < 70 or 20 < orange_mask_mean < 70 or 15 < darkred_mask_mean < 70:
-                    filtered_detected_regions.append(crop_region)
-                    if red_mask_mean > orange_mask_mean and red_mask_mean > darkred_mask_mean:
-                        masks.append((red_mask, best_region))
-                    elif orange_mask_mean > red_mask_mean and orange_mask_mean > darkred_mask_mean:
-                        masks.append((orange_mask, best_region))
-                    else:
-                        masks.append((darkred_mask, best_region))
-
-            # Build mask lists classifying them using containing operation (in) on sets for O(1) complexity
-            for mask, mask_region in masks:
-                if mask_region.type in forbid_set:
-                    forbid_masks_list.append(mask)
-                elif mask_region.type in stop_set:
-                    stop_masks_list.append(mask)
-                elif mask_region.type in yield_set:
-                    mask = cv2.rotate(mask, cv2.ROTATE_180)
-                    warning_masks_list.append(mask)
-                elif mask_region.type in warning_set:
-                    warning_masks_list.append(mask)
-
-            # Save interesting data to visualize with the detector visualizer to make debugging easier for devs
-            # training_output[act_img] = (masks,
-            #                             filtered_detected_regions,
-            #                             mser_outputs,
-            #                             self.original_images[act_img],
-            #                             self.greyscale_images[act_img])
+                # Build mask lists classifying them using containing operation (in) on sets for O(1) complexity
+                if best_region.type in forbid_set:
+                    forbid_regions_list.append(crop_region)
+                elif best_region.type in yield_set:  # Take yield signals and rotate them to act as warning regions
+                    crop_region = cv2.rotate(crop_region, cv2.ROTATE_180)
+                    warning_regions_list.append(crop_region)
+                elif best_region.type in warning_set:
+                    warning_regions_list.append(crop_region)
+                elif best_region.type in stop_set:
+                    stop_regions_list.append(crop_region)
 
         # Get length of mask lists for dividing in the mean calculation
-        total_forbid = len(forbid_masks_list)
-        total_warning = len(warning_masks_list)
-        total_stop = len(stop_masks_list)
+        total_forbid = len(forbid_regions_list)
+        total_warning = len(warning_regions_list)
+        total_stop = len(stop_regions_list)
+        forbid_mean_region = None
+        warning_mean_region = None
+        stop_mean_region = None
 
-        # Mean calculation block
+        # Mean region calculation block
         if total_forbid != 0:
-            sum_forbid = np.float32(forbid_masks_list[0])
+            sum_forbid = np.float32(forbid_regions_list[0])
             for f in range(1, total_forbid):
-                cv2.add(sum_forbid, np.float32(forbid_masks_list[f]))
-            self.forbid_mask = np.uint8(sum_forbid / total_forbid)
-            self.forbid_mask = np.uint8(self.forbid_mask * 255)
+                sum_forbid = cv2.add(sum_forbid, np.float32(forbid_regions_list[f]))
+            forbid_mean_region = np.uint8(sum_forbid / total_forbid)
         if total_warning != 0:
-            sum_warning = np.float32(warning_masks_list[0])
+            sum_warning = np.float32(warning_regions_list[0])
             for w in range(1, total_warning):
-                cv2.add(sum_warning, np.float32(warning_masks_list[w]))
-            self.warning_mask = np.uint8(sum_warning / total_warning)
+                sum_warning = cv2.add(sum_warning, np.float32(warning_regions_list[w]))
+            warning_mean_region = np.uint8(sum_warning / total_warning)
         if total_stop != 0:
-            sum_stop = np.float32(stop_masks_list[0])
+            sum_stop = np.float32(stop_regions_list[0])
             for s in range(1, total_stop):
-                cv2.add(sum_stop, np.float32(stop_masks_list[s]))
-            self.stop_mask = np.uint8(sum_stop / total_stop)
+                sum_stop = cv2.add(sum_stop, np.float32(stop_regions_list[s]))
+            stop_mean_region = np.uint8(sum_stop / total_stop)
         if total != 0:
-            print("Forbid|Warning|Stop Masks calculation finished successfully!")
+            print("Forbid|Warning|Stop regions mean calculation finished successfully!")
+
+        # Now we calculate the mask of the mean forbid, warning and stop regions
+        # Red levels in HSV approximation
+        low_red_mask_1 = np.array([0, 65, 65])
+        high_red_mask_1 = np.array([8, 255, 255])
+        low_red_mask_2 = np.array([175, 75, 75])
+        high_red_mask_2 = np.array([179, 255, 255])
+
+        # Calculate red mask for forbid signals and their pixel proportion
+        white_img = 255 * np.ones((25, 25), np.uint8)
+        if forbid_mean_region is not None:
+            forbid_img_HSV = cv2.cvtColor(forbid_mean_region, cv2.COLOR_BGR2HSV)
+            f_red_mask_1 = cv2.inRange(forbid_img_HSV, low_red_mask_1, high_red_mask_1)
+            f_red_mask_2 = cv2.inRange(forbid_img_HSV, low_red_mask_2, high_red_mask_2)
+            self.forbid_mask = cv2.add(f_red_mask_1, f_red_mask_2)
+            active_pixels = white_img * self.forbid_mask
+            self.forbid_pixels_proportion = active_pixels.sum()
+
+        # Calculate red mask for warning signals
+        if warning_mean_region is not None:
+            warning_img_HSV = cv2.cvtColor(warning_mean_region, cv2.COLOR_BGR2HSV)
+            w_red_mask_1 = cv2.inRange(warning_img_HSV, low_red_mask_1, high_red_mask_1)
+            w_red_mask_2 = cv2.inRange(warning_img_HSV, low_red_mask_2, high_red_mask_2)
+            self.warning_mask = cv2.add(w_red_mask_1, w_red_mask_2)
+            active_pixels = white_img * self.warning_mask
+            self.warning_pixels_proportion = active_pixels.sum()
+
+        # Calculate red mask for stop signals
+        if stop_mean_region is not None:
+            stop_img_HSV = cv2.cvtColor(stop_mean_region, cv2.COLOR_BGR2HSV)
+            s_red_mask_1 = cv2.inRange(stop_img_HSV, low_red_mask_1, high_red_mask_1)
+            s_red_mask_2 = cv2.inRange(stop_img_HSV, low_red_mask_2, high_red_mask_2)
+            self.stop_mask = cv2.add(s_red_mask_1, s_red_mask_2)
+            active_pixels = white_img * self.stop_mask
+            self.stop_pixels_proportion = active_pixels.sum()
 
         # Return a status boolean to notify the predict function if everything finished correctly
         return self.forbid_mask is not None and self.warning_mask is not None and self.stop_mask is not None
-        # return training_output
 
     # DETECTOR TESTING
     def predict(self, train_status):
         if train_status:
-            # Sets for classifying the signal found regions in O(1) complexity using (_region_ in _set_)
-            forbid_set = {0, 1, 2, 3, 4, 5, 7, 8, 9, 10, 15, 16}
-            warning_set = {11, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31}
-            stop_set = {14}
-            yield_set = {13}
-
-            detected_regions = {}
-
             # Prepare the detection results directory
             # Check if results folder already exists and clear it, if not create it
             if os.path.isdir('resultado_imgs/'):
@@ -268,13 +253,21 @@ class Double_Equalized_MSER_Detector:
                 it += 1
                 progress_bar(it, total, prefix='Testing progress:  ', suffix='Complete', length=50)
 
-                # Detect polygons (regions) from the test image using mser detect regions operation
-                regions, _ = self.mser.detectRegions(self.greyscale_images[act_img])
+                # Equalize the histogram of the image to distribute the levels of color homogeneously
+                equalized_greyscale_image = cv2.equalizeHist(self.greyscale_images[act_img])
+
+                # Perform the maximal stable extreme regions detection (MSER) 2 times for getting the eq_reg & non_eq_reg
+                regions_non_equalized, _ = self.mser.detectRegions(self.greyscale_images[act_img])
+                regions_equalized, _ = self.mser.detectRegions(equalized_greyscale_image)
+                regions = regions_non_equalized + regions_equalized
+
+                detected_regions = set()  # Set to filter repetitions
 
                 original_image = np.copy(self.original_images[act_img])
                 for region in regions:
                     x, y, w, h = cv2.boundingRect(region)
-                    if abs(1 - (w / h)) <= 0.4:  # Filter detected regions with an aspect ratio very different from a square
+                    if abs(1 - (
+                            w / h)) <= 0.4:  # Filter detected regions with an aspect ratio very different from a square
                         # Adjust the width and height to obtain a perfect square for the region
                         x = max(x - 5, 0)
                         y = max(y - 5, 0)
@@ -288,63 +281,127 @@ class Double_Equalized_MSER_Detector:
                         reg = Region('', x, y, x + w,
                                      y + h)  # Instantiate an object to store the actual candidate region
 
-                        # Extract the region from the original image to process the mask
-                        crop_region = original_image[y:y + h, x:x + w]
+                        ###################################### REPETITIONS DELETION ###################################
+                        # Check if this region contains some previously detected one
+                        to_remove = list()
+                        update = True
+                        for r in detected_regions:
+                            if reg.contains(r):
+                                # Update
+                                to_remove.append(r)
+                            elif r.contains(reg):
+                                update = False
+                                break
 
-                        # Change each mser detected region to 25x25 to correlate with the training masks
-                        crop_region = cv2.resize(crop_region, (25, 25))
+                        # Add every region into the set to automatically filter similar regions
+                        if update:
+                            detected_regions.add(reg)
 
-                        # Extract the M red mask from the region to compare with the training ones
-                        # Red levels in HSV approximation
-                        low_red_mask_1 = np.array([0, 120, 20])
-                        high_red_mask_1 = np.array([8, 240, 255])
-                        low_red_mask_2 = np.array([175, 120, 20])
-                        high_red_mask_2 = np.array([179, 240, 255])
+                        # Try to remove all contained regions
+                        for r in to_remove:
+                            detected_regions.remove(r)
+                        ###############################################################################################
 
-                        crop_img_HSV = cv2.cvtColor(crop_region, cv2.COLOR_BGR2HSV)  # Change to HSV
-                        red_mask_1 = cv2.inRange(crop_img_HSV, low_red_mask_1, high_red_mask_1)
-                        red_mask_2 = cv2.inRange(crop_img_HSV, low_red_mask_2, high_red_mask_2)
-                        M = cv2.add(red_mask_1, red_mask_2)  # M is the red mask extracted from the detected region
+                for region in detected_regions:
+                    # Extract the region from the original image to process the mask
+                    crop_region = original_image[int(region.y1):int(region.y2),
+                                  int(region.x1):int(region.x2)]
 
-                        M_mean = M.mean()
-                        if 20 < M_mean < 70:
-                            # Correlate M with each mask obtained by the training
-                            no_signal_threshold = 20.0
-                            # Multiply element by element
-                            forbid_correlated = M * self.forbid_mask
-                            warning_correlated = M * self.warning_mask
-                            stop_correlated = M * self.stop_mask
+                    # Change each mser detected region to 25x25 to correlate with the training masks
+                    crop_region = cv2.resize(crop_region, (25, 25))
 
-                            # Transform every pixel != 0 to 255 value for calculating score
-                            _, forbid_correlated = cv2.threshold(forbid_correlated, 0, 255, cv2.THRESH_BINARY)
-                            _, warning_correlated = cv2.threshold(warning_correlated, 0, 255, cv2.THRESH_BINARY)
-                            _, stop_correlated = cv2.threshold(stop_correlated, 0, 255, cv2.THRESH_BINARY)
+                    # Extract the M red mask from the region to compare with the training ones
+                    # Red levels in HSV approximation
+                    low_red_mask_1 = np.array([0, 120, 20])
+                    high_red_mask_1 = np.array([8, 240, 255])
+                    low_red_mask_2 = np.array([175, 120, 20])
+                    high_red_mask_2 = np.array([179, 240, 255])
 
-                            # Add all the matching points between them to obtain a correlation coefficient
-                            forbid_corr_coefficient = forbid_correlated.sum()
-                            warning_corr_coefficient = warning_correlated.sum()
-                            stop__corr_coefficient = stop_correlated.sum()
+                    # Orange levels in HSV approximation
+                    low_orange_mask = np.array([5, 100, 20])
+                    high_orange_mask = np.array([15, 140, 255])
 
-                            # Score computation -> Number of coincident pixels / Total number of pixels * 100 (percent)
-                            forbid_corr_score = ((forbid_corr_coefficient / 255) / 625) * 100
-                            warning_corr_score = ((warning_corr_coefficient / 255) / 625) * 100
-                            stop__corr_score = ((stop__corr_coefficient / 255) / 625) * 100
+                    # Dark Red levels in HSV approximation, this is needed for dark signals that are near black color
+                    low_darkpurple_mask = np.array([140, 25, 10])
+                    high_darkpurple_mask = np.array([145, 100, 80])
+                    low_darkred_mask = np.array([172, 75, 20])
+                    high_darkred_mask = np.array([179, 140, 100])
+                    low_darkbrown_mask = np.array([8, 50, 20])
+                    high_darkbrown_mask = np.array([18, 120, 100])
+
+                    crop_img_HSV = cv2.cvtColor(crop_region, cv2.COLOR_BGR2HSV)  # Change to HSV
+                    red_mask_1 = cv2.inRange(crop_img_HSV, low_red_mask_1, high_red_mask_1)
+                    red_mask_2 = cv2.inRange(crop_img_HSV, low_red_mask_2, high_red_mask_2)
+                    dark_mask_1 = cv2.inRange(crop_img_HSV, low_darkpurple_mask, high_darkpurple_mask)
+                    dark_mask_2 = cv2.inRange(crop_img_HSV, low_darkred_mask, high_darkred_mask)
+                    dark_mask_3 = cv2.inRange(crop_img_HSV, low_darkbrown_mask, high_darkbrown_mask)
+                    M_red = cv2.add(red_mask_1, red_mask_2)  # M is the red mask extracted from the detected region
+                    M_orange = cv2.inRange(crop_img_HSV, low_orange_mask, high_orange_mask)
+                    M_darkred = cv2.add(dark_mask_1, dark_mask_2, dark_mask_3)
+
+                    # Filter what mask gets better definition for the doing the correlation
+                    M_red_mean = M_red.mean()
+                    M_orange_mean = M_orange.mean()
+                    M_darkred_mean = M_darkred.mean()
+                    if 10 < M_red_mean < 70 or 30 < M_orange_mean < 70 or 30 < M_darkred_mean < 70:
+                        if M_darkred_mean >= M_orange_mean and M_darkred_mean >= M_red_mean:
+                            M = M_darkred
+                        elif M_orange_mean >= M_red_mean and M_orange_mean >= M_darkred_mean:
+                            M = M_orange
+                        else:
+                            M = M_red
+
+                        # Correlate M with each mask obtained by the training: Multiply element by element
+                        forbid_correlated = M * self.forbid_mask
+                        warning_correlated = M * self.warning_mask
+                        stop_correlated = M * self.stop_mask
+
+                        # Add all the matching points between them to obtain a correlation coefficient
+                        forbid_corr_coefficient = forbid_correlated.sum()
+                        warning_corr_coefficient = warning_correlated.sum()
+                        stop_corr_coefficient = stop_correlated.sum()
+
+                        # Score computation -> Number of coincident pixels / Total number of pixels * 100 (percent)
+                        forbid_corr_score = int((forbid_corr_coefficient / self.forbid_pixels_proportion) * 100)
+                        warning_corr_score = int((warning_corr_coefficient / self.warning_pixels_proportion) * 100)
+                        stop_corr_score = int((stop_corr_coefficient / self.stop_pixels_proportion) * 100)
+
+                        # This value can be adjusted for reducing noisy detections
+                        # We decided to keep it lower for detecting the majority
+                        # of signals even though it detects some noise too
+                        no_signal_threshold = 10
+                        no_stop_signal = 50  # As stop mask can detect lot of noise we put its threshold higher
+                        if forbid_corr_score > no_signal_threshold \
+                                or warning_corr_score > no_signal_threshold \
+                                or stop_corr_score > no_stop_signal:
 
                             # Filter the scores to classify the regions reg.type = type
+                            if stop_corr_score >= forbid_corr_score and stop_corr_score >= warning_corr_score:
+                                region.type = 3
+                                write_score = stop_corr_score
+                            elif warning_corr_score >= forbid_corr_score and warning_corr_score >= stop_corr_score:
+                                region.type = 2
+                                write_score = warning_corr_score
+                            else:
+                                region.type = 1
+                                write_score = forbid_corr_score
 
-                            # *************** Write the Ground Truth &  Draw Bounding Rectangles & Save ***************
-                            results.write(act_img + ';' + str(reg.x1) + ';' + str(reg.y1)
-                                                  + ';' + str(reg.x2) + ';' + str(reg.y2)
-                                                  + ';' + str(reg.type) + ';' + str(int(forbid_corr_score)) + '\n')
+                            # Check if the region is already detected
 
-                            cv2.rectangle(self.original_images[act_img], (reg.x1, reg.y1), (reg.x2, reg.y2),
+                            # *************** Write the Ground Truth &  Draw Bounding Rectangles & Save ***********
+                            results.write(act_img + ';' + str(region.x1) + ';' + str(region.y1)
+                                          + ';' + str(region.x2) + ';' + str(region.y2)
+                                          + ';' + str(region.type) + ';' + str(write_score) + '\n')
+
+                            cv2.rectangle(self.original_images[act_img], (region.x1, region.y1), (region.x2, region.y2),
                                           (0, 0, 255), 2)
-                            # *****************************************************************************************
+                            # *************************************************************************************
 
                 # Save the detected regions image into the results directory
                 cv2.imwrite(os.path.join('resultado_imgs/', act_img), self.original_images[act_img])
 
             print("Testing finished, you can find the results inside \"resultado_imgs\" directory :)")
+            results.close()  # Results txt file communication closed
 
         else:
             print('Testing failed due to lack of some training masks')

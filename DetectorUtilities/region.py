@@ -10,11 +10,17 @@ class Region:
         self.type = t
 
     def contains(self, other):
-        # Returns true if self contains other
-        return self.x1 < other.x1 < self.x2 and \
-               self.y1 < other.y1 < self.y2 and \
-               self.x1 < other.x2 < self.x2 and \
-               self.y1 < other.y2 < self.y2
+        # Returns true if the compared "other" region has at least one point inside the "self" region
+        in_vertex = 0
+        if self.x1 < other.x1 < self.x2 and self.y1 < other.y1 < self.y2:
+            in_vertex += 1
+        if self.x1 < other.x1 < self.x2 and self.y1 < other.y2 < self.y2:
+            in_vertex += 1
+        if self.x1 < other.x2 < self.x2 and self.y1 < other.y1 < self.y2:
+            in_vertex += 1
+        if self.x1 < other.x2 < self.x2 and self.y1 < other.y2 < self.y2:
+            in_vertex += 1
+        return in_vertex != 0 and in_vertex != 2
 
     def __eq__(self, other):
         # Overriding equality of Region class for permitting to ask a regions set from the ground-truth

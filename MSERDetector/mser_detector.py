@@ -1,9 +1,25 @@
 import os
 import shutil
 import cv2
+import matplotlib.pyplot as plt
 import numpy as np
 from DetectorUtilities.region import *
 from DetectorUtilities.progress_bar import *
+
+
+# Helper function for saving our training accuracy function to a file for visualization purposes
+def save_training_metrics(x, y, x_prime, y_prime):
+    train_total = np.array(y).sum()
+    gt_total = np.array(y_prime).sum()
+    train_acc = (train_total / gt_total) * 100
+    accuracy_comparison = plt.figure(figsize=(15, 5))
+    plt.plot(x, y, '--c', label='Training Accuracy')
+    plt.plot(x_prime, y_prime, 'orange', label='Target Accuracy')
+    plt.title('Accuracy => ' + str(train_acc) + '%')
+    plt.xlabel("Training Image Index")
+    plt.ylabel("Signal Detections")
+    plt.legend()
+    accuracy_comparison.savefig('training_accuracy.png')
 
 
 class MSER_Detector:
@@ -87,12 +103,16 @@ class MSER_Detector:
         warning_regions_list = list()
         stop_regions_list = list()
 
+        # List to save the detected signals during training for metrics visualization
+        our_accuracy = list()
+        gt_accuracy = list()
+
         # Train with all the preprocessed images and show the progress in the terminal with the helper function
         it = 0
         total = len(self.greyscale_images)
         if total != 0:
             progress_bar(it, total, prefix='Training progress: ', suffix='Complete', length=50)
-        for act_img in self.greyscale_images:
+        for act_img in self.greyscale_images:  # "Epochs" of the training loop
             it += 1
             progress_bar(it, total, prefix='Training progress: ', suffix='Complete', length=50)
             # Detect polygons (regions) from the train image using mser detect regions operation
@@ -100,6 +120,8 @@ class MSER_Detector:
 
             # Color rectangles and Mask extraction
             best_regions = {}
+            # Initialize found regions to 0 for the metrics
+            found_regions_in_act_epoch = 0
             for region in regions:
                 x, y, w, h = cv2.boundingRect(region)
                 if abs(1 - (w / h)) <= 0.4:  # Filter detected regions with an aspect ratio very different from a square
@@ -126,7 +148,7 @@ class MSER_Detector:
                                 checking if a region is the same as the one in the ground-truth of an image.                          
                                 The scope of this is to reduce time complexity and to improve efficiency.
                                 """
-                                # Classify the region type when found in the actual image ground-truth
+                                # As we found the actual region inside the ground truth here we know that it is correct
                                 reg.type = int(r.type)
                                 # Calculate the offset error of the candidate region to filter regions that are not
                                 # centered on the target, this is needed for reducing execution time and to save the
@@ -140,6 +162,12 @@ class MSER_Detector:
                                     if last_error > error:
                                         best_regions[reg.type] = (reg, error)
 
+            # We can save the correctly detected images for the metrics now and start the best regions classification
+            our_accuracy.append(len(best_regions))
+            if self.ground_truth.get(act_img) is not None:
+                gt_accuracy.append(len(self.ground_truth[act_img]))
+            else:
+                gt_accuracy.append(0)
             for best_region, _ in best_regions.values():
 
                 # Extract the region from the original image to process the mean
@@ -222,6 +250,10 @@ class MSER_Detector:
             self.stop_pixels_proportion = active_pixels.sum()
 
         # Return a status boolean to notify the predict function if everything finished correctly
+        x_values = list()
+        for i in range(len(self.greyscale_images)):
+            x_values.append(i)
+        save_training_metrics(x_values, our_accuracy, x_values, gt_accuracy)
         return self.forbid_mask is not None and self.warning_mask is not None and self.stop_mask is not None
 
     # DETECTOR TESTING
@@ -354,7 +386,10 @@ class MSER_Detector:
                         warning_corr_score = int((warning_corr_coefficient / self.warning_pixels_proportion) * 100)
                         stop_corr_score = int((stop_corr_coefficient / self.stop_pixels_proportion) * 100)
 
-                        no_signal_threshold = 0
+                        # This value can be adjusted for reducing noisy detections
+                        # We decided to keep it lower for detecting the majority
+                        # of signals even though it detects some noise too
+                        no_signal_threshold = 10
                         if forbid_corr_score > no_signal_threshold \
                                 or warning_corr_score > no_signal_threshold \
                                 or stop_corr_score > no_signal_threshold:

@@ -19,7 +19,7 @@ if __name__ == "__main__":
     # Create the detector
     if vars(args)['detector'] == 'mser':
         detector = MSER_Detector()
-    elif vars(args)['detector'] == 'double_equalized_mser':
+    elif vars(args)['detector'] == 'double_mser':
         detector = Double_Equalized_MSER_Detector()
 
     # Extract the the train & test paths
@@ -41,7 +41,7 @@ if __name__ == "__main__":
         # Load testing data
         detector.preprocess_data(test_path, False)
 
-        # Testing, see results in ./resultado_imgs/
+        # Testing -> see results in ./resultado_imgs/
         detector.predict(status)
     else:
         print("Please introduce the options \"--train_path <train_path> --test_path <test_path> "
