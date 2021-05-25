@@ -12,6 +12,7 @@ def save_training_metrics(x, y, x_prime, y_prime):
     train_total = np.array(y).sum()
     gt_total = np.array(y_prime).sum()
     train_acc = (train_total / gt_total) * 100
+    train_acc = round(train_acc, 4)
     accuracy_comparison = plt.figure(figsize=(15, 5))
     plt.plot(x, y, '--c', label='Training Accuracy')
     plt.plot(x_prime, y_prime, 'orange', label='Target Accuracy')
@@ -19,7 +20,8 @@ def save_training_metrics(x, y, x_prime, y_prime):
     plt.xlabel("Training Image Index")
     plt.ylabel("Signal Detections")
     plt.legend()
-    accuracy_comparison.savefig('training_accuracy.png')
+    accuracy_comparison.savefig('single_mser_training_accuracy.png')
+    print("Training metrics saved on single_mser_training_accuracy.png")
 
 
 class MSER_Detector:
@@ -115,13 +117,12 @@ class MSER_Detector:
         for act_img in self.greyscale_images:  # "Epochs" of the training loop
             it += 1
             progress_bar(it, total, prefix='Training progress: ', suffix='Complete', length=50)
+
             # Detect polygons (regions) from the train image using mser detect regions operation
             regions, _ = self.mser.detectRegions(self.greyscale_images[act_img])
 
             # Color rectangles and Mask extraction
             best_regions = {}
-            # Initialize found regions to 0 for the metrics
-            found_regions_in_act_epoch = 0
             for region in regions:
                 x, y, w, h = cv2.boundingRect(region)
                 if abs(1 - (w / h)) <= 0.4:  # Filter detected regions with an aspect ratio very different from a square
@@ -286,8 +287,7 @@ class MSER_Detector:
                 original_image = np.copy(self.original_images[act_img])
                 for region in regions:
                     x, y, w, h = cv2.boundingRect(region)
-                    if abs(1 - (
-                            w / h)) <= 0.4:  # Filter detected regions with an aspect ratio very different from a square
+                    if abs(1 - (w / h)) <= 0.4:  # Filter detected regions with an aspect ratio very different from a square
                         # Adjust the width and height to obtain a perfect square for the region
                         x = max(x - 5, 0)
                         y = max(y - 5, 0)
@@ -298,8 +298,7 @@ class MSER_Detector:
                         elif h > w:
                             w = h
 
-                        reg = Region('', x, y, x + w,
-                                     y + h)  # Instantiate an object to store the actual candidate region
+                        reg = Region('', x, y, x + w, y + h)  # Instantiate an object to store the actual candidate region
 
                         ###################################### REPETITIONS DELETION ###################################
                         # Check if this region contains some previously detected one
@@ -404,8 +403,6 @@ class MSER_Detector:
                             else:
                                 region.type = 1
                                 write_score = forbid_corr_score
-
-                            # Check if the region is already detected
 
                             # *************** Write the Ground Truth &  Draw Bounding Rectangles & Save ***********
                             results.write(act_img + ';' + str(region.x1) + ';' + str(region.y1)

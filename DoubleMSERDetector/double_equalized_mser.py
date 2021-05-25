@@ -2,8 +2,26 @@ import os
 import shutil
 import cv2
 import numpy as np
+from matplotlib import pyplot as plt
 from DetectorUtilities.region import *
 from DetectorUtilities.progress_bar import *
+
+
+# Helper function for saving our training accuracy function to a file for visualization purposes
+def save_training_metrics(x, y, x_prime, y_prime):
+    train_total = np.array(y).sum()
+    gt_total = np.array(y_prime).sum()
+    train_acc = (train_total / gt_total) * 100
+    train_acc = round(train_acc, 4)
+    accuracy_comparison = plt.figure(figsize=(15, 5))
+    plt.plot(x, y, '--c', label='Training Accuracy')
+    plt.plot(x_prime, y_prime, 'orange', label='Target Accuracy')
+    plt.title('Accuracy => ' + str(train_acc) + '%')
+    plt.xlabel("Training Image Index")
+    plt.ylabel("Signal Detections")
+    plt.legend()
+    accuracy_comparison.savefig('double_mser_training_accuracy.png')
+    print("Training metrics saved on double_mser_training_accuracy.png")
 
 
 class Double_Equalized_MSER_Detector:
@@ -87,6 +105,10 @@ class Double_Equalized_MSER_Detector:
         warning_regions_list = list()
         stop_regions_list = list()
 
+        # List to save the detected signals during training for metrics visualization
+        our_accuracy = list()
+        gt_accuracy = list()
+
         # Train with all the preprocessed images and show the progress in the terminal with the helper function
         it = 0
         total = len(self.greyscale_images)
@@ -97,13 +119,11 @@ class Double_Equalized_MSER_Detector:
             progress_bar(it, total, prefix='Training progress: ', suffix='Complete', length=50)
             # Detect polygons (regions) from the train image using mser detect regions operation
 
-            # Equalize the histogram of the image to distribute the levels of color homogeneously
-            equalized_greyscale_image = cv2.equalizeHist(self.greyscale_images[act_img])
-
             # Perform the maximal stable extreme regions detection (MSER) 2 times for getting the eq_reg & non_eq_reg
-            regions_non_equalized, _ = self.mser.detectRegions(self.greyscale_images[act_img])
-            regions_equalized, _ = self.mser.detectRegions(equalized_greyscale_image)
-            regions = regions_non_equalized + regions_equalized
+            eq_img = cv2.equalizeHist(self.greyscale_images[act_img])
+            regions_non_eq, _ = self.mser.detectRegions(self.greyscale_images[act_img])
+            regions_eq, _ = self.mser.detectRegions(eq_img)
+            regions = regions_non_eq + regions_eq
 
             # Color rectangles and Mask extraction
             best_regions = {}
@@ -147,6 +167,12 @@ class Double_Equalized_MSER_Detector:
                                     if last_error > error:
                                         best_regions[reg.type] = (reg, error)
 
+            # We can save the correctly detected images for the metrics now and start the best regions classification
+            our_accuracy.append(len(best_regions))
+            if self.ground_truth.get(act_img) is not None:
+                gt_accuracy.append(len(self.ground_truth[act_img]))
+            else:
+                gt_accuracy.append(0)
             for best_region, _ in best_regions.values():
 
                 # Extract the region from the original image to process the mean
@@ -229,6 +255,10 @@ class Double_Equalized_MSER_Detector:
             self.stop_pixels_proportion = active_pixels.sum()
 
         # Return a status boolean to notify the predict function if everything finished correctly
+        x_values = list()
+        for i in range(len(self.greyscale_images)):
+            x_values.append(i)
+        save_training_metrics(x_values, our_accuracy, x_values, gt_accuracy)
         return self.forbid_mask is not None and self.warning_mask is not None and self.stop_mask is not None
 
     # DETECTOR TESTING
@@ -322,8 +352,8 @@ class Double_Equalized_MSER_Detector:
                     high_orange_mask = np.array([15, 140, 255])
 
                     # Dark Red levels in HSV approximation, this is needed for dark signals that are near black color
-                    low_darkpurple_mask = np.array([140, 25, 10])
-                    high_darkpurple_mask = np.array([145, 100, 80])
+                    # low_darkpurple_mask = np.array([140, 25, 10])
+                    # high_darkpurple_mask = np.array([145, 100, 80])
                     low_darkred_mask = np.array([172, 75, 20])
                     high_darkred_mask = np.array([179, 140, 100])
                     low_darkbrown_mask = np.array([8, 50, 20])
@@ -332,18 +362,18 @@ class Double_Equalized_MSER_Detector:
                     crop_img_HSV = cv2.cvtColor(crop_region, cv2.COLOR_BGR2HSV)  # Change to HSV
                     red_mask_1 = cv2.inRange(crop_img_HSV, low_red_mask_1, high_red_mask_1)
                     red_mask_2 = cv2.inRange(crop_img_HSV, low_red_mask_2, high_red_mask_2)
-                    dark_mask_1 = cv2.inRange(crop_img_HSV, low_darkpurple_mask, high_darkpurple_mask)
+                    # dark_mask_1 = cv2.inRange(crop_img_HSV, low_darkpurple_mask, high_darkpurple_mask)
                     dark_mask_2 = cv2.inRange(crop_img_HSV, low_darkred_mask, high_darkred_mask)
                     dark_mask_3 = cv2.inRange(crop_img_HSV, low_darkbrown_mask, high_darkbrown_mask)
                     M_red = cv2.add(red_mask_1, red_mask_2)  # M is the red mask extracted from the detected region
                     M_orange = cv2.inRange(crop_img_HSV, low_orange_mask, high_orange_mask)
-                    M_darkred = cv2.add(dark_mask_1, dark_mask_2, dark_mask_3)
+                    M_darkred = cv2.add(dark_mask_2, dark_mask_3)
 
                     # Filter what mask gets better definition for the doing the correlation
                     M_red_mean = M_red.mean()
                     M_orange_mean = M_orange.mean()
                     M_darkred_mean = M_darkred.mean()
-                    if 10 < M_red_mean < 70 or 30 < M_orange_mean < 70 or 30 < M_darkred_mean < 70:
+                    if 10 <= M_red_mean <= 70 or 20 <= M_orange_mean <= 70 or 15 <= M_darkred_mean <= 70:
                         if M_darkred_mean >= M_orange_mean and M_darkred_mean >= M_red_mean:
                             M = M_darkred
                         elif M_orange_mean >= M_red_mean and M_orange_mean >= M_darkred_mean:
@@ -370,7 +400,7 @@ class Double_Equalized_MSER_Detector:
                         # We decided to keep it lower for detecting the majority
                         # of signals even though it detects some noise too
                         no_signal_threshold = 10
-                        no_stop_signal = 50  # As stop mask can detect lot of noise we put its threshold higher
+                        no_stop_signal = 20  # As stop mask can detect lot of noise we put its threshold higher
                         if forbid_corr_score > no_signal_threshold \
                                 or warning_corr_score > no_signal_threshold \
                                 or stop_corr_score > no_stop_signal:
